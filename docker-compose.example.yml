@@ -1,0 +1,90 @@
+# NetRecon — Docker Compose Example
+# Copy this file to docker-compose.yml and update the values below.
+#
+# Quick start:
+#   cp docker-compose.example.yml docker-compose.yml
+#   # Edit DNS_SERVERS below
+#   docker compose up -d
+
+services:
+
+  netrecon:
+    image: ghcr.io/netradns/netrecon:latest
+    container_name: netrecon
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "4"
+    ports:
+      - "8085:80"           # Change 8085 to any available port
+    networks:
+      - netrecon-internal
+    depends_on:
+      - dns-proxy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  dns-proxy:
+    image: ghcr.io/netradns/netrecon-dns-proxy:latest
+    container_name: netrecon-dns-proxy
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "4"
+    environment:
+      # ── OPTIONAL ───────────────────────────────────────────────
+      # Your internal DNS server IPs (comma-separated)
+      # Only needed for the Internal DNS tool.
+      # Public DNS, IP Calculator, and Cloud CIDR work without this.
+      - DNS_SERVERS=
+
+      # ── OPTIONAL ───────────────────────────────────────────────
+      # Public DNS servers (used for startup connectivity test only)
+      - PUBLIC_DNS=1.1.1.1,8.8.8.8
+
+      # Restrict internal DNS lookups to these domains (leave empty for all)
+      # Example: ALLOWED_DOMAINS=corp.local,internal.example.com
+      - ALLOWED_DOMAINS=
+
+      # Stats/Admin page password — change before deploying to production!
+      # Default is 'admin'. Set to any string you choose.
+      # Once changed via the admin UI, the new hash is stored in /data/config.json
+      # and takes effect immediately without a container restart.
+      - STATS_PASSWORD=admin
+
+      # Internal DNS timeout in milliseconds
+      - DNS_TIMEOUT=5000
+
+      # dns-proxy listen port (must match nginx.conf proxy_pass)
+      - PORT=3053
+
+    volumes:
+      # Stats data persistence — use a named volume (recommended)
+      # or a bind mount: - /your/path/netrecon-data:/data
+      # If using bind mount: mkdir -p /your/path/netrecon-data && chown 1000:1000 /your/path/netrecon-data
+      - netrecon-stats:/data
+
+    networks:
+      - netrecon-internal
+    expose:
+      - "3053"
+
+networks:
+  netrecon-internal:
+    driver: bridge
+    # NOTE: Do NOT set internal: true — dns-proxy needs outbound
+    # internet access to reach Cloudflare DoH (1.1.1.1:443) for
+    # public DNS lookups and geolocation APIs.
+
+volumes:
+  netrecon-stats:
+    # Named volume — Docker manages permissions automatically.
+    # Stats persist across container restarts and rebuilds.

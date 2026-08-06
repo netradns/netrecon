@@ -1,0 +1,22 @@
+{
+    "name": "netrecon-dns-proxy",
+    "version": "1.0.0",
+    "description": "NetRecon DNS proxy sidecar — public DNS via Cloudflare DoH, internal DNS via UDP, IP geolocation, and usage stats",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js"
+    },
+    "engines": {
+        "node": ">=22"
+    },
+    "keywords": [
+        "dns",
+        "proxy",
+        "doh",
+        "cloudflare",
+        "network",
+        "netrecon"
+    ],
+    "license": "MIT",
+    "dependencies": {}
+}

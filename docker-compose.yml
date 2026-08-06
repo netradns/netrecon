@@ -1,0 +1,88 @@
+services:
+
+  # ── Main app (nginx serving static frontend) ───────────────
+  netrecon:
+    image: ghcr.io/netradns/netrecon:latest
+    container_name: netrecon
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "4"
+    ports:
+      - "8085:80"
+    networks:
+      - netrecon-internal
+    depends_on:
+      - dns-proxy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ── DNS proxy sidecar ──────────────────────────────────────
+  # Handles all DNS resolution (public + internal) and stats.
+  # Only reachable via nginx on the internal network — never
+  # exposed to the host.
+  dns-proxy:
+    image: ghcr.io/netradns/netrecon-dns-proxy:latest
+    container_name: netrecon-dns-proxy
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "4"
+    environment:
+      # ── OPTIONAL: your internal DNS server IPs ─────────────
+      # Only needed if you want the Internal DNS tool to work.
+      # Leave empty if you only need public DNS, IP calc, and cloud planning.
+      - DNS_SERVERS=
+
+      # ── Public DNS for external lookups ────────────────────
+      - PUBLIC_DNS=1.1.1.1,8.8.8.8
+
+      # ── Optional: restrict internal DNS to these domains ───
+      # Leave empty to allow all. Example: corp.local,internal.example.com
+      - ALLOWED_DOMAINS=
+
+      # ── Stats/Admin password ────────────────────────────────
+      # Password for the /admin page.
+      # Change this before deploying to production!
+      # Default: admin
+      - STATS_PASSWORD=admin
+
+      # ── Internal DNS timeout in ms (default 5000) ──────────
+      - DNS_TIMEOUT=5000
+
+      # ── Port (default 3053) ────────────────────────────────
+      - PORT=3053
+    volumes:
+      - netrecon-stats:/data
+    networks:
+      - netrecon-internal
+    expose:
+      - "3053"
+
+networks:
+  netrecon-internal:
+    driver: bridge
+    # NOTE: Do NOT set internal: true — dns-proxy needs outbound internet
+    # access for Cloudflare DoH (443), geolocation APIs, and notification webhooks.
+
+volumes:
+  netrecon-stats:
+    # Named volume — Docker manages permissions automatically.
+    # Stats, config, watched domains, and notify logs persist here.
+    # Data survives container restarts and image rebuilds.
+    #
+    # ⚠ WARNING: Running "docker compose down -v" DELETES this volume
+    # and all admin settings, watched domains, and stats with it.
+    # Use "docker compose down" (without -v) to stop without data loss.
+    #
+    # To use a bind mount instead, replace with:
+    #   - /docker/netrecon/data:/data
+    # and run: mkdir -p /docker/netrecon/data && chown 1000:1000 /docker/netrecon/data
