@@ -28,37 +28,78 @@
 ## Features
 
 ### DNS / IP Lookup
-- **Public DNS** via Cloudflare DoH (1.1.1.1) — A, AAAA, CNAME, MX, TXT, NS, SOA, CAA
-- **Email Security** — DKIM selector probing, DMARC policy parsing, SPF mechanism breakdown
-- **IP Geolocation** — interactive Leaflet map, org/ASN, PTR record, IPv4 + IPv6 support
-- **Clickable IPs** — click any A/AAAA result to run a full IP lookup instantly
-- **Split-brain safe** — public tool uses Cloudflare DoH only, never touches internal DNS
+- **Public DNS** via Cloudflare DoH (1.1.1.1) — A, AAAA, CNAME, MX, TXT, NS, SOA, CAA resolved in parallel
+- **Email Security audit** — DKIM selector probing (12 common selectors), DMARC policy parsing with enforcement level, SPF mechanism breakdown with color-coded pills
+- **IP Geolocation** — interactive Leaflet map with pin, org/ASN (clickable BGP.he.net link), PTR record, city/region/country, timezone
+- **IPv4 + IPv6** — full support for both address families including IPv6 PTR lookups
+- **Clickable IPs** — click any A/AAAA result to instantly run a full IP lookup with map
+- **TLS Certificate check** — subject, issuer, SANs, expiry countdown, cipher, protocol version, full chain display
+- **DNSBL Blacklist check** — tests IPs against 10 major blacklists (Spamhaus, SpamCop, Barracuda, SORBS, etc.) in parallel
+- **Split-brain safe** — public tool uses Cloudflare DoH exclusively, never leaks internal records
+- **Multi-type parallel resolution** — all record types resolved in one request (~300ms vs sequential ~6s)
 
 ### Internal DNS
 - **Private DNS resolution** via your own DNS servers (Microsoft DNS, BIND, Unbound, etc.)
 - **All record types** — A, AAAA, CNAME, MX, SRV, TXT, NS, PTR with TTL display
 - **Health indicator** — real-time proxy connection status in sidebar
-- **Configurable quick links** — pre-populate common internal hostnames
+- **Domain allow-list** — optionally restrict which domains can be queried internally
+- **Configurable quick links** — pre-populate common internal hostnames for one-click lookup
+- **Timeout control** — configurable per-query timeout for slow internal DNS servers
 
 ### IP Calculator
 - **CIDR analysis** — network, broadcast, mask, wildcard, first/last host, usable count
-- **Binary display** — visual bit-level representation of IP, mask, and wildcard
-- **Subnet splits** — expandable breakdown into /25, /26, /27, /28 with all subnet details
-- **Supernet summary** — shows parent networks for route summarization planning (clickable)
-- **RFC classification** — RFC 1918, loopback, link-local, multicast, reserved detection
+- **Binary display** — visual bit-level representation of IP, mask, and wildcard with colored network/host bits
+- **Subnet splits** — expandable breakdown into /25, /26, /27, /28 with full details per subnet (click to expand)
+- **Supernet summary** — shows parent networks for route summarization planning (clickable to recalculate)
+- **RFC classification** — RFC 1918, loopback, link-local, multicast, reserved, documentation range detection
+- **Quick examples** — common CIDR entries for fast access
 
 ### Cloud CIDR Planning
 - **AWS VPC, GCP VPC, Azure VNet** — automatic subnet allocation across AZs/regions
-- **Configurable tiers** — name, prefix size, color per subnet tier
-- **Color picker** — preset palette + custom hex input
-- **Architecture notes** — provider-specific implementation guidance per plan
-- **XLSX export** — download complete subnet plan as Excel workbook
+- **Configurable tiers** — name, prefix size, and color per subnet tier (e.g., public, private, database)
+- **Color picker** — preset palette + custom hex input for visual subnet differentiation
+- **Architecture notes** — provider-specific implementation guidance per plan (reserved IPs, AZ mapping, etc.)
+- **XLSX export** — download the complete subnet plan as an Excel workbook for sharing with teams
+- **Visual subnet map** — color-coded AZ breakdown with subnet names, CIDRs, and host counts
+
+### DNS Change Monitoring
+- **Watched Domains** — add any domain (public or internal) to a watch list with configurable poll intervals (5m, 15m, 1h, 6h, 24h)
+- **Change Detection** — compares current records against the last snapshot and surfaces added, removed, or modified entries
+- **Change History** — full audit log per domain showing what changed, when, and the before/after values
+- **Multi-record support** — monitor A, AAAA, MX, TXT, NS, CNAME, SOA, CAA, or all at once
+- **Public + Internal** — watch domains against Cloudflare DoH or your own private DNS servers
+- **Detail panel** — click any watched domain to see its current snapshot, last check time, and full change log
+
+### Notifications & Alerting
+- **Multi-channel** — Slack (Block Kit), Microsoft Teams (Adaptive Cards), Discord (Embeds), generic webhooks, and email
+- **Simultaneous delivery** — alerts fire to all configured channels in parallel
+- **DNS change alerts** — notified immediately when a watched domain's records change
+- **Delivery log** — rolling log of the last 200 delivery attempts with success/failure status and duration
+- **Per-channel test** — verify each integration with a one-click test button
+- **SMTP support** — send email alerts through your own relay (no external dependencies)
+- **Webhook secret** — optional `X-Webhook-Secret` header for verifying inbound requests at your endpoint
 
 ### Stats Dashboard
 - **Usage tracking** — per-tool counters, recent lookups, top queried domains
-- **DNS proxy health** — response time, server status, nginx metrics
+- **DNS proxy health** — response time, server status, nginx connection metrics
 - **Hourly volume chart** — 24-hour query volume visualization
+- **Record type distribution** — breakdown of which DNS record types are queried most
+- **Error tracking** — NXDOMAIN, timeouts, and other failures counted and displayed
 - **Login protected** — SHA-256 hashed credentials, session-based auth
+
+### General
+- **First-run setup wizard** — browser-based setup on first launch, no config files to edit
+- **Zero-config Docker deployment** — `docker compose up -d` and open the browser
+- **All settings in the UI** — DNS servers, notifications, password, quick links — all configurable without restarting
+- **Hot-reload** — DNS resolver reconfigures instantly when settings change
+- **Dark / Light / System** theme toggle with persistence
+- **Collapsible sidebar** — collapse to icon-only mode, state remembered across sessions
+- **Mobile responsive** — full breakpoint support for tablets and phones
+- **Keyboard shortcuts** — Enter to search, sidebar navigation
+- **Rate limited** — nginx rate limiting on all API endpoints prevents abuse
+- **Security hardened** — CSP headers, no inline scripts, non-root containers, request size limits, input validation
+- **Zero npm dependencies** — dns-proxy uses only Node.js built-ins (no supply chain risk)
+- **Persistent data** — all settings, stats, watched domains, and notification logs survive container restarts
 
 ---
 
