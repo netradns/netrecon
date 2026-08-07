@@ -21,30 +21,17 @@ ENV NODE_ENV=production
 WORKDIR /app
 
 # Copy application source
-# lib/ contains the modular components (config, resolver, handlers, stats)
 COPY server.js .
 COPY lib/ ./lib/
 
-# Create a dedicated non-root user for security
-# -S = system user (no password, no home dir)
-# -G = add to group
-RUN addgroup -S dnsapp \
-    && adduser -S dnsapp -G dnsapp \
-    && chown -R dnsapp:dnsapp /app \
-    # Create the stats data directory with correct ownership
-    # This is overridden by the Docker volume mount at runtime
-    && mkdir -p /data \
-    && chown dnsapp:dnsapp /data
-
-# Switch to non-root user
-USER dnsapp
+# Create the data directory — will be overridden by volume mount at runtime
+# but ensures the path exists if no volume is mounted
+RUN mkdir -p /data
 
 # Internal port — only accessible within the Docker network
 EXPOSE 3053
 
 # Healthcheck: verify the HTTP server is responding
-# Used by Docker and docker-compose depends_on health checks
-# start-period gives the server time to start before failures count against retries
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD wget -qO- http://localhost:3053/health || exit 1
 

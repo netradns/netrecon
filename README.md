@@ -176,7 +176,7 @@ networks:
 ### 3. Start
 
 ```bash
-mkdir -p ./data && sudo chown 1000:1000 ./data
+mkdir -p ./data
 docker compose up -d
 ```
 
@@ -193,7 +193,7 @@ All settings can be changed later in the admin panel (Settings → Server).
 ```bash
 docker network create netrecon-internal
 
-mkdir -p /docker/netrecon/data && sudo chown 1000:1000 /docker/netrecon/data
+mkdir -p /docker/netrecon/data
 
 docker run -d --name netrecon-dns-proxy \
   --network netrecon-internal \
@@ -390,8 +390,8 @@ Contributions are welcome. The codebase is intentionally modular — each featur
 - Run `docker logs netrecon-dns-proxy` for connectivity test results
 
 **Stats page permission error**
-- The `./data` directory needs to be writable by UID 1000
-- Run: `mkdir -p ./data && sudo chown 1000:1000 ./data`
+- The `./data` directory needs to exist before starting: `mkdir -p ./data`
+- If issues persist, check: `docker logs netrecon-dns-proxy`
 
 **Port conflict**
 - Change `8085:80` in `docker-compose.yml` to any available port
