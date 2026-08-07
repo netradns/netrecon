@@ -95,25 +95,77 @@
 - Docker + Docker Compose
 - Your internal DNS server IPs (for the Internal DNS tool)
 
-### 1. Clone and configure
+### 1. Create the project directory
 
 ```bash
-git clone https://github.com/netradns/netrecon.git
-cd netrecon
-cp docker-compose.example.yml docker-compose.yml
+mkdir netrecon && cd netrecon
 ```
 
-Edit `docker-compose.yml` and set your internal DNS servers (optional — only needed for the Internal DNS tool):
+### 2. Create `docker-compose.yml`
 
 ```yaml
-environment:
-  - DNS_SERVERS=192.168.1.10,192.168.1.11
+services:
+  netrecon:
+    image: ghcr.io/netradns/netrecon:latest
+    container_name: netrecon
+    restart: unless-stopped
+    ports:
+      - "8085:80"
+    networks:
+      - netrecon-internal
+    depends_on:
+      - dns-proxy
+
+  dns-proxy:
+    image: ghcr.io/netradns/netrecon-dns-proxy:latest
+    container_name: netrecon-dns-proxy
+    restart: unless-stopped
+    environment:
+      - DNS_SERVERS=            # Optional: your internal DNS server IPs
+      - STATS_PASSWORD=admin    # Change this!
+    volumes:
+      - netrecon-stats:/data
+    networks:
+      - netrecon-internal
+    expose:
+      - "3053"
+
+networks:
+  netrecon-internal:
+    driver: bridge
+
+volumes:
+  netrecon-stats:
 ```
 
-### 2. Start
+Set `DNS_SERVERS` if you want the Internal DNS tool to work (e.g., `DNS_SERVERS=192.168.1.10,192.168.1.11`). All other tools work without it.
+
+### 3. Start
 
 ```bash
 docker compose up -d
+```
+
+### Without Docker Compose
+
+```bash
+docker network create netrecon-internal
+docker volume create netrecon-stats
+
+docker run -d --name netrecon-dns-proxy \
+  --network netrecon-internal \
+  -e DNS_SERVERS= \
+  -e STATS_PASSWORD=admin \
+  -v netrecon-stats:/data \
+  --expose 3053 \
+  --restart unless-stopped \
+  ghcr.io/netradns/netrecon-dns-proxy:latest
+
+docker run -d --name netrecon \
+  --network netrecon-internal \
+  -p 8085:80 \
+  --restart unless-stopped \
+  ghcr.io/netradns/netrecon:latest
 ```
 
 ### 3. Access

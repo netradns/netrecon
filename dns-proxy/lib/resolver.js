@@ -27,7 +27,9 @@ const { DNS_SERVERS, PUBLIC_DNS, PUBLIC_TIMEOUT, DNS_TIMEOUT } = require('./conf
 // Calling dns.setServers() on the global module would affect all DNS
 // resolution in the process, including Node.js internals.
 const internalResolver = new dns.Resolver();
-internalResolver.setServers(DNS_SERVERS);
+if (DNS_SERVERS.length) {
+  internalResolver.setServers(DNS_SERVERS);
+}
 
 // Public resolver — used only for the startup connectivity test.
 // Actual public lookups go through Cloudflare DoH, not this resolver.
@@ -355,14 +357,16 @@ function ipToArpa(ip) {
  */
 function runConnectivityTests() {
   setTimeout(() => {
-    // Test internal DNS
-    internalResolver.resolve4('localhost', (err) => {
-      if (err && err.code !== 'ENOTFOUND' && err.code !== 'ENODATA') {
-        console.warn(`[WARN] Internal DNS test failed (${err.code}) — check DNS_SERVERS`);
-      } else {
-        console.log('[INFO] Internal DNS connectivity OK');
-      }
-    });
+    // Test internal DNS (only if configured)
+    if (DNS_SERVERS.length) {
+      internalResolver.resolve4('localhost', (err) => {
+        if (err && err.code !== 'ENOTFOUND' && err.code !== 'ENODATA') {
+          console.warn(`[WARN] Internal DNS test failed (${err.code}) — check DNS_SERVERS`);
+        } else {
+          console.log('[INFO] Internal DNS connectivity OK');
+        }
+      });
+    }
 
     // Test public DNS (UDP, not DoH — just checks network reachability)
     publicResolver.resolve4('cloudflare.com', (err) => {

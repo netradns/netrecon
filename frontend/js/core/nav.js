@@ -61,6 +61,26 @@ function closeSidebar() {
   if (overlay) overlay.classList.remove('open');
 }
 
+// ── Sidebar collapse toggle ──────────────────────────────────────
+function toggleSidebar() {
+  var sidebar = document.getElementById('sidebar');
+  if (!sidebar) return;
+  sidebar.classList.toggle('collapsed');
+  try {
+    localStorage.setItem('nr-sb-collapsed', sidebar.classList.contains('collapsed') ? '1' : '0');
+  } catch(e) {}
+}
+
+// ── Restore sidebar state on load ────────────────────────────────
+(function restoreSidebarState() {
+  try {
+    if (localStorage.getItem('nr-sb-collapsed') === '1') {
+      var sidebar = document.getElementById('sidebar');
+      if (sidebar) sidebar.classList.add('collapsed');
+    }
+  } catch(e) {}
+})();
+
 // ── Hash-based routing on load ───────────────────────────────────
 window.addEventListener('DOMContentLoaded', function() {
   var hash = window.location.hash.replace('#', '').split('/')[0];

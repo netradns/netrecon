@@ -375,6 +375,7 @@ async function handleResolve(req, res, query) {
   if (name.length > 253 || !/^[a-zA-Z0-9._-]+$/.test(name)) {
     return jsonSafe(res, 400, { error: 'Invalid domain name' });
   }
+  if (!DNS_SERVERS.length) return jsonSafe(res, 503, { error: 'Internal DNS not configured — set DNS_SERVERS in docker-compose.yml' });
   if (!isAllowed(name)) return jsonSafe(res, 403, { error: 'Domain not permitted' });
 
   const ALLOWED_TYPES = new Set(['A','AAAA','CNAME','MX','SRV','TXT','NS','PTR','SOA','CAA']);
@@ -426,6 +427,7 @@ async function handleResolveAll(req, res, query) {
   if (name.length > 253 || !/^[a-zA-Z0-9._-]+$/.test(name)) {
     return jsonSafe(res, 400, { error: 'Invalid domain name' });
   }
+  if (!DNS_SERVERS.length) return jsonSafe(res, 503, { error: 'Internal DNS not configured — set DNS_SERVERS in docker-compose.yml' });
   if (!isAllowed(name)) return jsonSafe(res, 403, { error: 'Domain not permitted' });
 
   const isIP  = /^(\d{1,3}\.){3}\d{1,3}$/.test(name);

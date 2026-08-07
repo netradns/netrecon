@@ -4,12 +4,45 @@
 'use strict';
 
 async function checkProxy() {
+  // First check if internal DNS is enabled via app config
+  try {
+    const cfgR = await fetch('/api/app-config', { cache: 'no-store' });
+    if (cfgR.ok) {
+      const cfg = await cfgR.json();
+      const proxySection = document.getElementById('proxy-section');
+      if (cfg.internalDnsEnabled === false) {
+        if (proxySection) proxySection.style.display = 'none';
+        return;
+      } else {
+        if (proxySection) proxySection.style.display = '';
+      }
+    }
+  } catch {}
+
   const t0 = performance.now();
   try {
     const r = await fetch('/api/internal-dns/health', { cache: 'no-store' });
     const ping = Math.round(performance.now() - t0);
     if (!r.ok) throw new Error('non-200');
     const d = await r.json();
+
+    // If no DNS servers configured, show as "Not Configured" rather than online
+    if (!d.servers || d.servers.length === 0) {
+      el('proxy-status').textContent = 'Not Configured';
+      el('proxy-status').className   = 'proxy-val';
+      el('proxy-servers').textContent = 'None — set DNS_SERVERS in docker-compose.yml';
+      el('proxy-ping').textContent   = '—';
+      el('proxy-ping-bar').style.width = '0%';
+      el('proxy-checked').textContent  = new Date().toLocaleTimeString();
+      el('proxy-updated').textContent  = 'Checked ' + new Date().toLocaleTimeString();
+      el('proxy-error').style.display  = 'none';
+
+      const dot = el('sb-idns-dot');
+      const lbl = el('sb-idns-lbl');
+      if (dot) { dot.style.background = 'var(--sb-label)'; dot.style.boxShadow = 'none'; }
+      if (lbl) lbl.textContent = 'Not configured';
+      return;
+    }
 
     el('proxy-status').textContent = 'Reachable';
     el('proxy-status').className   = 'proxy-val up';
