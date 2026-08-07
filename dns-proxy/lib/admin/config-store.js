@@ -35,10 +35,16 @@ let _cache = null;
 // All fields should have safe, sensible defaults.
 function defaultConfig() {
   return {
+    setupComplete:      false,  // First-run wizard not yet completed
     internalDnsEnabled: true,   // Internal DNS enabled by default
     notifyChannels:     [],     // No notification channels configured
     smtpConfig:         null,   // No SMTP configured
     statsPasswordHash:  null,   // null = use env var hash (see password.js)
+    // Server-level DNS configuration (set via setup wizard or Settings → Server)
+    dnsServers:         [],     // Internal DNS server IPs
+    publicDns:          ['1.1.1.1', '8.8.8.8'], // Public DNS for connectivity tests
+    allowedDomains:     [],     // Restrict internal DNS to these domains
+    dnsTimeout:         5000,   // Internal DNS timeout in ms
     // Webhook secret — included as X-Webhook-Secret header in outgoing
     // webhook notifications. Allows receivers to verify the request
     // came from NetRecon. Empty = no secret header sent.

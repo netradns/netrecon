@@ -19,7 +19,7 @@
 
 const http = require('http');
 const { PORT, DNS_SERVERS, PUBLIC_DNS } = require('./lib/config');
-const { runConnectivityTests } = require('./lib/resolver');
+const { runConnectivityTests, reconfigure } = require('./lib/resolver');
 const { flush } = require('./lib/stats');
 const { flush: flushNotifyLog } = require('./lib/notify/log');
 const {
@@ -36,6 +36,7 @@ const {
   handleBlacklist,
   handleTlsCheck,
   jsonSafe,
+  readBody,
 } = require('./lib/handlers');
 
 // Admin route handlers — settings, password, notify, watched domains
@@ -49,6 +50,12 @@ const {
   handleAddWatched,
   handleRemoveWatched,
 } = require('./lib/admin/handlers');
+
+// Setup wizard handlers (first-run only)
+const { handleSetupStatus, handleSetup } = require('./lib/admin/setup');
+
+// Server settings handlers (DNS servers, timeout, etc.)
+const { handleGetServerSettings, handlePutServerSettings } = require('./lib/admin/server-settings');
 
 // Domain watcher — starts the polling scheduler
 const watcher = require('./lib/watcher/index');
@@ -111,6 +118,8 @@ const server = http.createServer(async (req, res) => {
     // ── Route table ─────────────────────────────────────────────
     if (pathname === '/health')                               return handleHealth(req, res);
     if (pathname === '/app-config'       && method === 'GET') return handleAppConfig(req, res);
+    if (pathname === '/setup/status'     && method === 'GET') return handleSetupStatus(req, res, jsonSafe);
+    if (pathname === '/setup'            && method === 'POST') return handleSetup(req, res, jsonSafe, readBody);
     if (pathname === '/dns-query'        && method === 'GET') return handleDnsQuery(req, res, query);
     if (pathname === '/dns-query-multi'  && method === 'POST') return handleDnsQueryMulti(req, res);
     if (pathname === '/geo'              && method === 'GET') return handleGeo(req, res, query);
@@ -131,6 +140,8 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/admin/notify/test'  && method === 'POST')   return handleTestNotify(req, res);
     if (pathname === '/admin/watched'      && method === 'GET')    return handleGetWatched(req, res);
     if (pathname === '/admin/watched'      && method === 'POST')   return handleAddWatched(req, res);
+    if (pathname === '/admin/server-settings' && method === 'GET') return handleGetServerSettings(req, res);
+    if (pathname === '/admin/server-settings' && method === 'PUT') return handlePutServerSettings(req, res, readBody, reconfigure);
 
     // DELETE /admin/watched/:id — extract the ID from the path
     if (pathname.startsWith('/admin/watched/') && method === 'DELETE') {
@@ -170,6 +181,19 @@ server.listen(PORT, '0.0.0.0', () => {
 // Run connectivity tests 2 seconds after startup
 // (gives the network stack time to initialize)
 runConnectivityTests();
+
+// ── Apply stored configuration ────────────────────────────────────
+// On startup, check if config.json has DNS servers stored from the UI.
+// If so, reconfigure the resolver to use them instead of env vars.
+// This ensures the setup wizard / admin settings take precedence.
+const { getConfig: getStoredConfig } = require('./lib/admin/config-store');
+(function applyStoredConfig() {
+  const cfg = getStoredConfig();
+  if (cfg.dnsServers && cfg.dnsServers.length) {
+    reconfigure({ dnsServers: cfg.dnsServers, publicDns: cfg.publicDns || [] });
+    console.log(`[INFO] Applied stored DNS config: ${cfg.dnsServers.join(', ')}`);
+  }
+})();
 
 // Start the domain watcher scheduler
 // (delayed 30s inside watcher/index.js to let the server fully initialise)

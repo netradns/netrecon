@@ -334,6 +334,7 @@ function handleRemoveWatched(req, res, id) {
 }
 
 module.exports = {
+  requireAuth,
   handleGetConfig,
   handlePutConfig,
   handleChangePassword,

@@ -376,10 +376,34 @@ function runConnectivityTests() {
   }, 2000);
 }
 
+// ── Hot-reload configuration ──────────────────────────────────────
+/**
+ * Reconfigure the resolver with new settings at runtime.
+ * Called when server settings are changed via the admin UI.
+ * Updates the internal DNS resolver servers and timeout values.
+ *
+ * @param {object} opts
+ * @param {string[]} opts.dnsServers     - New internal DNS server IPs
+ * @param {string[]} opts.publicDns      - New public DNS server IPs
+ * @param {string[]} opts.allowedDomains - Not used here (read from config at query time)
+ * @param {number}   opts.dnsTimeout     - New timeout in ms
+ */
+function reconfigure(opts) {
+  if (opts.dnsServers && opts.dnsServers.length) {
+    internalResolver.setServers(opts.dnsServers);
+    console.log(`[INFO] Internal DNS resolver updated: ${opts.dnsServers.join(', ')}`);
+  }
+  if (opts.publicDns && opts.publicDns.length) {
+    publicResolver.setServers(opts.publicDns);
+    console.log(`[INFO] Public DNS resolver updated: ${opts.publicDns.join(', ')}`);
+  }
+}
+
 module.exports = {
   resolveAll,
   resolvePublic,
   resolveInternal,
   ipToArpa,
   runConnectivityTests,
+  reconfigure,
 };

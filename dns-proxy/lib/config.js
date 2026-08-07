@@ -19,6 +19,8 @@ const PORT = parseInt(process.env.PORT || '3053', 10);
 // DNS_SERVERS: your internal/private DNS servers (required)
 //   Used by the Internal DNS tool. Never used for public lookups.
 //   Example: DNS_SERVERS=192.168.1.10,192.168.1.11
+//
+//   Priority: config.json (set via UI) > environment variable > empty
 const DNS_SERVERS = (process.env.DNS_SERVERS || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 

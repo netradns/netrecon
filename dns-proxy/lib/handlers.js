@@ -23,12 +23,28 @@ const http  = require('http');
 const { resolveAll, ipToArpa } = require('./resolver');
 const stats = require('./stats');
 const {
-  DNS_SERVERS, PUBLIC_TIMEOUT, DNS_TIMEOUT, ALLOWED_DOMAINS,
+  DNS_SERVERS: ENV_DNS_SERVERS, PUBLIC_TIMEOUT, DNS_TIMEOUT, ALLOWED_DOMAINS: ENV_ALLOWED_DOMAINS,
 } = require('./config');
 const { getActiveHash } = require('./admin/password');
 const { getConfig }     = require('./admin/config-store');
 const { checkBlacklists } = require('./blacklist');
 const { checkCert }       = require('./tls-check');
+
+// ── Dynamic config readers ────────────────────────────────────────
+// These read from config-store first, falling back to env vars.
+// This allows settings changed via the UI to take effect immediately.
+function getDnsServers() {
+  const cfg = getConfig();
+  return (cfg.dnsServers && cfg.dnsServers.length) ? cfg.dnsServers : ENV_DNS_SERVERS;
+}
+function getAllowedDomains() {
+  const cfg = getConfig();
+  return (cfg.allowedDomains && cfg.allowedDomains.length) ? cfg.allowedDomains : ENV_ALLOWED_DOMAINS;
+}
+function getDnsTimeout() {
+  const cfg = getConfig();
+  return cfg.dnsTimeout || DNS_TIMEOUT;
+}
 
 // ── Shared helpers ────────────────────────────────────────────────
 
@@ -58,9 +74,10 @@ function jsonSafe(res, status, data) {
  * Used to restrict the Internal DNS tool to specific domains.
  */
 function isAllowed(name) {
-  if (!ALLOWED_DOMAINS.length) return true;
+  const domains = getAllowedDomains();
+  if (!domains.length) return true;
   const lower = name.toLowerCase();
-  return ALLOWED_DOMAINS.some(d => lower === d || lower.endsWith('.' + d));
+  return domains.some(d => lower === d || lower.endsWith('.' + d));
 }
 
 /**
@@ -135,7 +152,7 @@ function fetchJson(mod, url, headers, timeoutMs) {
  * Used by Docker healthcheck and the admin dashboard proxy health panel.
  */
 function handleHealth(req, res) {
-  return jsonSafe(res, 200, { ok: true, servers: DNS_SERVERS });
+  return jsonSafe(res, 200, { ok: true, servers: getDnsServers() });
 }
 
 /**
@@ -149,6 +166,7 @@ function handleHealth(req, res) {
 function handleAppConfig(req, res) {
   const cfg = getConfig();
   return jsonSafe(res, 200, {
+    setupComplete:      cfg.setupComplete === true,
     statsPasswordHash:  getActiveHash(),
     internalDnsEnabled: cfg.internalDnsEnabled === false ? false : true,
     dnsQuickLinks:      cfg.dnsQuickLinks  || [],
@@ -375,7 +393,7 @@ async function handleResolve(req, res, query) {
   if (name.length > 253 || !/^[a-zA-Z0-9._-]+$/.test(name)) {
     return jsonSafe(res, 400, { error: 'Invalid domain name' });
   }
-  if (!DNS_SERVERS.length) return jsonSafe(res, 503, { error: 'Internal DNS not configured — set DNS_SERVERS in docker-compose.yml' });
+  if (!getDnsServers().length) return jsonSafe(res, 503, { error: 'Internal DNS not configured — configure via Settings → Server in the admin panel' });
   if (!isAllowed(name)) return jsonSafe(res, 403, { error: 'Domain not permitted' });
 
   const ALLOWED_TYPES = new Set(['A','AAAA','CNAME','MX','SRV','TXT','NS','PTR','SOA','CAA']);
@@ -390,7 +408,7 @@ async function handleResolve(req, res, query) {
 
   const t0 = Date.now();
   try {
-    const records    = await resolveAll(queryName, type, false, DNS_TIMEOUT);
+    const records    = await resolveAll(queryName, type, false, getDnsTimeout());
     const responseMs = Date.now() - t0;
     const st = stats.load();
     stats.track(st, {
@@ -399,7 +417,7 @@ async function handleResolve(req, res, query) {
     });
     stats.save(st);
     return jsonSafe(res, 200, {
-      name, type, server: DNS_SERVERS[0], records, count: records.length, responseMs,
+      name, type, server: getDnsServers()[0], records, count: records.length, responseMs,
     });
   } catch (err) {
     const responseMs = Date.now() - t0;
@@ -427,7 +445,7 @@ async function handleResolveAll(req, res, query) {
   if (name.length > 253 || !/^[a-zA-Z0-9._-]+$/.test(name)) {
     return jsonSafe(res, 400, { error: 'Invalid domain name' });
   }
-  if (!DNS_SERVERS.length) return jsonSafe(res, 503, { error: 'Internal DNS not configured — set DNS_SERVERS in docker-compose.yml' });
+  if (!getDnsServers().length) return jsonSafe(res, 503, { error: 'Internal DNS not configured — configure via Settings → Server in the admin panel' });
   if (!isAllowed(name)) return jsonSafe(res, 403, { error: 'Domain not permitted' });
 
   const isIP  = /^(\d{1,3}\.){3}\d{1,3}$/.test(name);
@@ -437,7 +455,7 @@ async function handleResolveAll(req, res, query) {
   try {
     const results = await Promise.all(types.map(t => {
       const qname = (t === 'PTR' && isIP) ? ipToArpa(name) : name;
-      return resolveAll(qname, t, false, DNS_TIMEOUT);
+      return resolveAll(qname, t, false, getDnsTimeout());
     }));
     const all        = results.flat();
     const responseMs = Date.now() - t0;
@@ -448,7 +466,7 @@ async function handleResolveAll(req, res, query) {
     });
     stats.save(st);
     return jsonSafe(res, 200, {
-      name, server: DNS_SERVERS[0], records: all, count: all.length, responseMs,
+      name, server: getDnsServers()[0], records: all, count: all.length, responseMs,
     });
   } catch (err) {
     const responseMs = Date.now() - t0;
@@ -578,4 +596,5 @@ module.exports = {
   handleBlacklist,
   handleTlsCheck,
   jsonSafe,
+  readBody,
 };

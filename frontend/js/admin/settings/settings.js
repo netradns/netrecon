@@ -34,6 +34,10 @@ function renderSettingsShell() {
         <svg width="13" height="13" viewBox="0 0 15 15" fill="none"><line x1="2" y1="4" x2="13" y2="4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="2" y1="7.5" x2="13" y2="7.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="2" y1="11" x2="13" y2="11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="5" cy="4" r="1.5" fill="var(--bg)" stroke="currentColor" stroke-width="1.2"/><circle cx="9" cy="7.5" r="1.5" fill="var(--bg)" stroke="currentColor" stroke-width="1.2"/><circle cx="5" cy="11" r="1.5" fill="var(--bg)" stroke="currentColor" stroke-width="1.2"/></svg>
         General
       </button>
+      <button class="settings-tab" data-tab="server" onclick="showSettingsTab('server')">
+        <svg width="13" height="13" viewBox="0 0 15 15" fill="none"><rect x="2" y="2" width="11" height="4" rx="1.5" stroke="currentColor" stroke-width="1.3"/><rect x="2" y="9" width="11" height="4" rx="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="5" cy="4" r=".8" fill="currentColor"/><circle cx="5" cy="11" r=".8" fill="currentColor"/></svg>
+        Server
+      </button>
       <button class="settings-tab" data-tab="notifications" onclick="showSettingsTab('notifications')">
         <svg width="13" height="13" viewBox="0 0 15 15" fill="none"><path d="M7.5 1.5a5 5 0 015 5v2.5l1 2H1.5l1-2V6.5a5 5 0 015-5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M6 12.5a1.5 1.5 0 003 0" stroke="currentColor" stroke-width="1.3"/></svg>
         Notifications
@@ -103,6 +107,43 @@ function renderSettingsShell() {
           </div>
           <button class="btn btn-primary btn-sm" onclick="addQuickLink('idnsQuickLinks')">Add</button>
         </div>
+      </div>
+    </div>
+
+    <!-- ── Tab: Server ── -->
+    <div class="settings-tab-panel" id="stab-server">
+      <div class="panel" style="margin-bottom:16px">
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px">DNS Configuration</div>
+        <div style="font-size:12px;color:var(--text-3);margin-bottom:16px">
+          Configure DNS servers and behavior. Changes take effect immediately — no container restart required.
+          The DNS resolver is hot-reloaded when you save.
+        </div>
+
+        <div class="field-group" style="margin-bottom:14px">
+          <label class="field-label">Internal DNS Servers</label>
+          <input class="f-input mono" id="serverDnsServers" placeholder="e.g., 192.168.1.10, 192.168.1.11 (comma-separated)">
+          <div style="font-size:11px;color:var(--text-3);margin-top:4px">Your private DNS servers for internal hostname resolution. Leave blank to disable Internal DNS.</div>
+        </div>
+
+        <div class="field-group" style="margin-bottom:14px">
+          <label class="field-label">Public DNS Servers</label>
+          <input class="f-input mono" id="serverPublicDns" placeholder="1.1.1.1, 8.8.8.8 (comma-separated)">
+          <div style="font-size:11px;color:var(--text-3);margin-top:4px">Used for the startup connectivity test only. Public lookups always use Cloudflare DoH regardless of this value.</div>
+        </div>
+
+        <div class="field-group" style="margin-bottom:14px">
+          <label class="field-label">Allowed Domains <span style="font-weight:400;color:var(--text-3)">(optional)</span></label>
+          <input class="f-input mono" id="serverAllowedDomains" placeholder="e.g., corp.local, internal.example.com (comma-separated)">
+          <div style="font-size:11px;color:var(--text-3);margin-top:4px">Restrict internal DNS lookups to these domains only. Leave blank to allow all.</div>
+        </div>
+
+        <div class="field-group" style="margin-bottom:16px;max-width:200px">
+          <label class="field-label">DNS Timeout (ms)</label>
+          <input class="f-input mono" id="serverDnsTimeout" type="number" value="5000" min="1000" max="30000" step="500">
+          <div style="font-size:11px;color:var(--text-3);margin-top:4px">How long to wait for internal DNS responses.</div>
+        </div>
+
+        <button class="btn btn-primary btn-sm" id="serverSettingsSaveBtn" onclick="saveServerSettings()">Save Server Settings</button>
       </div>
     </div>
 
@@ -298,8 +339,9 @@ function showSettingsTab(tab) {
     p.classList.toggle('active', p.id === 'stab-' + tab);
   });
 
-  // Load delivery log when switching to notifications tab
+  // Load tab-specific data
   if (tab === 'notifications') loadNotifyLog();
+  if (tab === 'server') loadServerSettings();
 }
 
 // ── Load settings page ────────────────────────────────────────────

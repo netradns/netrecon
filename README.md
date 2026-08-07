@@ -120,11 +120,8 @@ services:
     image: ghcr.io/netradns/netrecon-dns-proxy:latest
     container_name: netrecon-dns-proxy
     restart: unless-stopped
-    environment:
-      - DNS_SERVERS=            # Optional: your internal DNS server IPs
-      - STATS_PASSWORD=admin    # Change this!
     volumes:
-      - netrecon-stats:/data
+      - ./data:/data
     networks:
       - netrecon-internal
     expose:
@@ -133,30 +130,33 @@ services:
 networks:
   netrecon-internal:
     driver: bridge
-
-volumes:
-  netrecon-stats:
 ```
-
-Set `DNS_SERVERS` if you want the Internal DNS tool to work (e.g., `DNS_SERVERS=192.168.1.10,192.168.1.11`). All other tools work without it.
 
 ### 3. Start
 
 ```bash
+mkdir -p ./data && sudo chown 1000:1000 ./data
 docker compose up -d
 ```
+
+### 4. Complete Setup
+
+Open `http://localhost:8085` — the setup wizard will guide you through:
+- Setting an admin password
+- Optionally configuring internal DNS servers
+
+All settings can be changed later in the admin panel (Settings → Server).
 
 ### Without Docker Compose
 
 ```bash
 docker network create netrecon-internal
-docker volume create netrecon-stats
+
+mkdir -p /docker/netrecon/data && sudo chown 1000:1000 /docker/netrecon/data
 
 docker run -d --name netrecon-dns-proxy \
   --network netrecon-internal \
-  -e DNS_SERVERS= \
-  -e STATS_PASSWORD=admin \
-  -v netrecon-stats:/data \
+  -v /docker/netrecon/data:/data \
   --expose 3053 \
   --restart unless-stopped \
   ghcr.io/netradns/netrecon-dns-proxy:latest
@@ -181,16 +181,22 @@ docker run -d --name netrecon \
 
 ## Configuration
 
-All configuration is via environment variables in `docker-compose.yml`. No code changes needed.
+All configuration is managed through the web UI — no environment variables or file editing required.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DNS_SERVERS` | *(empty)* | Comma-separated internal DNS server IPs (only needed for Internal DNS tool) |
-| `PUBLIC_DNS` | `1.1.1.1,8.8.8.8` | Public DNS servers (used for connectivity test only — public lookups use Cloudflare DoH) |
-| `ALLOWED_DOMAINS` | *(empty = all)* | Restrict internal DNS to these domains |
-| `DNS_TIMEOUT` | `5000` | Internal DNS timeout in ms |
-| `PORT` | `3053` | dns-proxy listen port |
-| `STATS_DIR` | `/data` | Stats persistence directory |
+On first launch, a setup wizard guides you through the initial configuration. After that, all settings are available in the admin panel under **Settings → Server**.
+
+| Setting | Where to Configure | Description |
+|---------|-------------------|-------------|
+| Admin password | Setup wizard / Settings → Security | Password for the admin panel |
+| Internal DNS servers | Setup wizard / Settings → Server | Your private DNS server IPs |
+| Public DNS | Settings → Server | Public DNS for connectivity tests (default: 1.1.1.1, 8.8.8.8) |
+| Allowed domains | Settings → Server | Restrict internal DNS to specific domains |
+| DNS timeout | Settings → Server | Internal DNS query timeout in ms |
+| Internal DNS toggle | Settings → General | Show/hide the Internal DNS tool |
+| Notifications | Settings → Notifications | Slack, Teams, Discord, Webhook, Email alerts |
+| Quick links | Settings → General | Customize the quick-link chips on lookup pages |
+
+All changes take effect immediately — no container restart required.
 
 ### Customizing Quick Links
 
@@ -343,8 +349,8 @@ Contributions are welcome. The codebase is intentionally modular — each featur
 - Run `docker logs netrecon-dns-proxy` for connectivity test results
 
 **Stats page permission error**
-- The `/data` volume needs to be writable by UID 1000
-- Run: `mkdir -p /your/data/path && chown 1000:1000 /your/data/path`
+- The `./data` directory needs to be writable by UID 1000
+- Run: `mkdir -p ./data && sudo chown 1000:1000 ./data`
 
 **Port conflict**
 - Change `8085:80` in `docker-compose.yml` to any available port
