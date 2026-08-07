@@ -10,11 +10,14 @@ async function checkProxy() {
     if (cfgR.ok) {
       const cfg = await cfgR.json();
       const proxySection = document.getElementById('proxy-section');
+      const sbIdnsStatus = document.getElementById('sb-idns-status');
       if (cfg.internalDnsEnabled === false) {
         if (proxySection) proxySection.style.display = 'none';
+        if (sbIdnsStatus) sbIdnsStatus.style.display = 'none';
         return;
       } else {
         if (proxySection) proxySection.style.display = '';
+        if (sbIdnsStatus) sbIdnsStatus.style.display = '';
       }
     }
   } catch {}
