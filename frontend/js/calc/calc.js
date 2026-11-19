@@ -17,6 +17,14 @@ function runCalc(cidrOverride, silent) {
   var out = document.getElementById('calc-results');
   if (!out) return;
 
+  // Just a prefix ("/27") or just a mask ("255.255.255.224"): show what it means, no IP needed
+  var only = parsePrefixOnly(raw);
+  if (only !== null) {
+    if (!silent) trackUsage('calc', raw);
+    renderPrefixInfo(only, out);
+    return;
+  }
+
   // Parse input — accepts 10.0.0.0/24, 10.0.0.0/255.255.255.0,
   // 10.0.0.0 255.255.255.0, 10.0.0.0 0.0.0.255 (wildcard), or a bare IP (/32)
   var parsed = parseCalcInput(raw);
@@ -31,7 +39,7 @@ function runCalc(cidrOverride, silent) {
   if (!silent) trackUsage('calc', raw);
 
   var r = buildCalcResult(ip, prefix, raw);
-  window._calcLast = { prefix: prefix, networkLong: r.networkLong, broadcastLong: ip2long(r.broadcast), network: r.network, raw: raw };
+  window._calcLast = { prefix: prefix, networkLong: r.networkLong, network: r.network, raw: raw };
   renderCalcResults(r, out);
 }
 
@@ -80,6 +88,19 @@ function maskToPrefix(maskStr) {
   return bin.indexOf('0') === -1 ? 32 : bin.indexOf('0');
 }
 
+// Detects input that is only a prefix length ("/27", "27") or only a subnet mask ("255.255.255.224").
+// Returns the prefix length (0-32), or null when the input is something else (e.g. a full IP).
+function parsePrefixOnly(raw) {
+  var s = raw.trim();
+  var m = s.match(/^\/?(\d{1,2})$/);
+  if (m) return parseInt(m[1], 10) <= 32 ? parseInt(m[1], 10) : null;
+  if (isDottedQuad(s)) {
+    var p = maskToPrefix(s);
+    if (p > 0) return p;
+  }
+  return null;
+}
+
 // Parse calculator input. Accepted forms:
 //   10.0.0.0/24   10.0.0.0/255.255.255.0   10.0.0.0 255.255.255.0
 //   10.0.0.0 0.0.0.255 (wildcard mask)     10.0.0.0 /24      10.0.0.0 (= /32)
@@ -89,6 +110,7 @@ var MAX_INPUT_LENGTH = 100;
 function parseCalcInput(raw) {
   if (raw.length > MAX_INPUT_LENGTH) return { error: 'Input is too long' };
   var s = raw.trim().replace(/\s*\/\s*/g, '/').replace(/\s+/g, ' ');
+  if (/^\/\d+$/.test(s)) return { error: 'Invalid prefix ' + s + ' (must be 0–32)' };
   var ip, rest = null;
 
   var m = s.match(/^(\S+?)(?:[\/ ](\S+))?$/);

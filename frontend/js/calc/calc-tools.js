@@ -1,5 +1,5 @@
 // NetRecon — IP Calculator helpers
-// Prefix cheat sheet, host-count finder, IP-in-subnet check, click-to-copy and live results.
+// Prefix cheat sheet, host-count finder, click-to-copy and live results.
 
 'use strict';
 
@@ -8,8 +8,9 @@
 // IP currently typed in the calculator, or a default when the box is empty or invalid
 function calcBaseIp() {
   var input = calcEl('cidrInput');
-  var p = input ? parseCalcInput(input.value) : null;
-  return (p && !p.error) ? p.ip : '192.168.1.0';
+  if (!input || parsePrefixOnly(input.value) !== null) return '192.168.1.0';   // "/27" or a bare mask holds no IP
+  var p = parseCalcInput(input.value);
+  return p.error ? '192.168.1.0' : p.ip;
 }
 
 // Recalculate the current IP with a different prefix length
@@ -60,24 +61,28 @@ function calcHostFinder() {
     '<span class="calc-hosts-note">Click to use it with ' + h(calcBaseIp()) + '</span>';
 }
 
-// ── Is this IP inside the calculated subnet? ─────────────────
+// ── Quick answer for a bare prefix or mask ───────────────────
 
-function calcCheckIp() {
-  var inp = calcEl('calcCheckIp'), out = calcEl('calcCheckOut');
-  var last = window._calcLast;          // set by runCalc()
-  if (!inp || !out || !last) return;
-
-  var v = inp.value.trim();
-  if (!v) { out.innerHTML = ''; return; }
-  if (!isDottedQuad(v)) { out.innerHTML = '<span class="calc-check-no">Not a valid IP</span>'; return; }
-
-  var n = ip2long(v), cidr = last.network + '/' + last.prefix;
-  if (n >= last.networkLong && n <= last.broadcastLong) {
-    out.innerHTML = '<span class="calc-check-yes">&#10003; Inside ' + h(cidr) + ' (address ' +
-      formatNumber(n - last.networkLong + 1) + ' of ' + formatNumber(last.broadcastLong - last.networkLong + 1) + ')</span>';
-  } else {
-    out.innerHTML = '<span class="calc-check-no">&#10007; Outside ' + h(cidr) + '</span>';
-  }
+// "What is a /27?" Shows the mask, wildcard and host counts without needing an IP.
+function renderPrefixInfo(prefix, container) {
+  var mask = prefixMask(prefix);
+  var cells = [
+    { label: 'Subnet Mask',     value: mask,                                                accent: true  },
+    { label: 'Wildcard Mask',   value: long2ip((~prefixToMaskLong(prefix)) >>> 0),          accent: false },
+    { label: 'Total Addresses', value: formatNumber(Math.pow(2, 32 - prefix)),              accent: false },
+    { label: 'Usable Hosts',    value: formatNumber(getUsable(prefix)),                     accent: true  },
+    { label: 'Host Bits',       value: String(32 - prefix),                                 accent: false }
+  ];
+  var html = '<div class="calc-results"><div class="cidr-summary"><div class="cidr-banner"><div>' +
+    '<div class="cidr-network">/' + prefix + ' = ' + h(mask) + '</div>' +
+    '<div class="cidr-desc">' + h(cidrClass(prefix)) + ' &nbsp;&middot;&nbsp; ' + formatNumber(getUsable(prefix)) + ' usable hosts</div>' +
+    '</div><span class="calc-chip" onclick="calcApplyPrefix(' + prefix + ')" title="Calculate a full subnet with this prefix">' +
+    'Use with ' + h(calcBaseIp()) + '/' + prefix + '</span></div><div class="cidr-grid">';
+  cells.forEach(function(c) {
+    html += '<div class="cidr-cell copyable" data-copy="' + h(c.value) + '" title="Click to copy"><div class="cidr-lbl">' + c.label +
+      '</div><div class="cidr-val' + (c.accent ? ' accent' : '') + '">' + h(c.value) + '</div></div>';
+  });
+  container.innerHTML = html + '</div></div></div>';
 }
 
 // ── Click-to-copy on result cells ────────────────────────────
@@ -114,7 +119,10 @@ document.addEventListener('DOMContentLoaded', function() {
     timer = setTimeout(function() {
       var p = parseCalcInput(input.value);
       var upToDate = window._calcLast && window._calcLast.raw === input.value.trim();
-      if (!p.error && p.explicit && !upToDate) runCalc(null, true);
+      // "/27" or a mask on its own. A plain number is not live-matched, since "19" is the start of "192.168...".
+      var v = input.value.trim();
+      var bare = parsePrefixOnly(v) !== null && (v.charAt(0) === '/' || v.indexOf('.') !== -1);
+      if (((!p.error && p.explicit) || bare) && !upToDate) runCalc(null, true);
       calcHostFinder();   // the suggestion mentions the IP being typed
     }, 400);
   });

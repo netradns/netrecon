@@ -231,12 +231,12 @@
           <summary>Tips: what can this do?</summary>
           <ul>
             <li><b>Any format works.</b> Use a prefix (<code>/27</code>), a subnet mask (<code>255.255.255.224</code>) or a wildcard mask (<code>0.0.0.31</code>).</li>
+            <li><b>Just want to know what a /27 is?</b> Type <code>/27</code> on its own (or a mask like <code>255.255.255.224</code>) for the mask, wildcard and host counts. No IP needed.</li>
             <li><b>Forgot what a prefix means?</b> Type a host count in "Need a subnet for…" or open the prefix cheat sheet.</li>
             <li><b>Click a result value</b> (network, broadcast, mask, first host…) to copy it.</li>
-            <li><b>Is an IP in this subnet?</b> Use the check box under the results.</li>
             <li><b>Click a split or supernet row</b> to see its subnets or move up a level.</li>
             <li><b>Create DHCP scope</b> generates PowerShell for a Windows DHCP server. <b>Export</b> saves CSV or text.</li>
-            <li><b>Planning several subnets?</b> Use the <b>VLSM Planner</b> tab. <b>Overlap Check</b> finds conflicts and <b>Summarize</b> merges routes.</li>
+            <li><b>Planning several subnets?</b> Use the <b>Subnet Planner</b> tab. <b>Overlap Check</b> finds conflicts and <b>Summarize</b> merges routes.</li>
             <li><b>Share it.</b> The page address updates with your input, so you can bookmark or send a link to a result.</li>
           </ul>
         </details>
@@ -247,7 +247,7 @@
             <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="3" y="3" width="16" height="16" rx="2.5" stroke="currentColor" stroke-width="1.7"/><line x1="7" y1="8" x2="10" y2="8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="7" y1="11.5" x2="15" y2="11.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="7" y1="15" x2="12" y2="15" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
           </div>
           <div class="welcome-h">Enter a CIDR block or subnet mask to begin</div>
-          <div class="welcome-p">Calculates network, broadcast, mask, usable hosts and binary form, with subnet splits and supernets. Also generates Windows DHCP scope scripts, exports CSV, and plans multiple subnets (VLSM) from the tabs above.</div>
+          <div class="welcome-p">Calculates network, broadcast, mask, usable hosts and binary form, with subnet splits and supernets. Also generates Windows DHCP scope scripts, exports CSV, and plans multiple subnets from the tabs above.</div>
         </div>
       </div>
       <div id="calcToolPanels"></div>

@@ -83,7 +83,7 @@ function dhcpOpen() {
   dhcpGenerate();
 }
 
-// Open the dialog for any subnet (used by the VLSM planner)
+// Open the dialog for any subnet (used by the subnet planner)
 function dhcpOpenFor(ip, prefix, scopeName) {
   if (prefix > 30) return;
   _dhcpCtx = buildCalcResult(ip, prefix);

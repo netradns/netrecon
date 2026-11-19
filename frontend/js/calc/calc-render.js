@@ -34,13 +34,6 @@ function renderCalcResults(r, container) {
   });
   html += '</div></div>';
 
-  // ── IP-in-subnet check ───────────────────────────────────
-  html += '<div class="calc-check">';
-  html += '<span class="calc-check-lbl">Is this IP in ' + h(r.network) + '/' + r.prefix + '?</span>';
-  html += '<input class="calc-input calc-check-in" id="calcCheckIp" type="text" placeholder="e.g. ' + h(r.firstHost) + '" autocomplete="off" spellcheck="false" oninput="calcCheckIp()"/>';
-  html += '<span class="calc-check-out" id="calcCheckOut"></span>';
-  html += '</div>';
-
   // ── Windows DHCP scope export ────────────────────────────
   if (typeof renderDhcpPanel === 'function') html += renderDhcpPanel(r);
 

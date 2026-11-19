@@ -1,4 +1,4 @@
-// NetRecon — IP Calculator: tabs, VLSM planner, overlap checker, summarizer and result export (UI)
+// NetRecon — IP Calculator: tabs, subnet planner (VLSM), overlap checker, summarizer and result export (UI)
 // Logic lives in calc-nettools.js. This file only builds and wires the interface.
 
 'use strict';
@@ -35,7 +35,7 @@ function debounced(fn, ms) {
 // ── Tabs ─────────────────────────────────────────────────────
 var CALC_TABS = [
   { id: 'calc',      label: 'Calculator' },
-  { id: 'vlsm',      label: 'VLSM Planner' },
+  { id: 'vlsm',      label: 'Subnet Planner' },
   { id: 'overlap',   label: 'Overlap Check' },
   { id: 'summarize', label: 'Summarize' }
 ];
@@ -62,11 +62,11 @@ function calcOpenCidr(cidr) {
   calcQuick(cidr);
 }
 
-// ── VLSM planner ─────────────────────────────────────────────
+// ── Subnet planner (VLSM) ─────────────────────────────────────────────
 var VLSM_EXAMPLE = 'Users 100\nServers 30\nVoIP 50\nPrinters 10\nWAN link 2';
 
 function vlsmPanel() {
-  return '<div class="plan-title">VLSM Subnet Planner</div>' +
+  return '<div class="plan-title">Subnet Planner</div>' +
     '<div class="plan-sub">Enter a network block and the subnets you need. Each one gets the smallest subnet that fits, largest first, with no gaps or overlaps.</div>' +
     '<div class="plan-row"><label class="plan-f"><span>Network block</span>' +
     '<input id="vlsmBase" class="calc-field" type="text" placeholder="e.g. 10.0.0.0/22" autocomplete="off" spellcheck="false"/></label>' +
@@ -259,7 +259,7 @@ function summarizeRows() {
 
 // ── Export for the three tools ───────────────────────────────
 var PLAN_EXPORT = {
-  vlsm:      { rows: vlsmRows,      file: 'vlsm-plan',         list: null },
+  vlsm:      { rows: vlsmRows,      file: 'subnet-plan',         list: null },
   overlap:   { rows: overlapRows,   file: 'overlap-report',   list: null },
   summarize: { rows: summarizeRows, file: 'summarized-routes', list: function() { return _plan.summarize.cidrs.map(function(c) { return c.cidr; }).join('\r\n'); } }
 };
