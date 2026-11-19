@@ -53,6 +53,13 @@
 - **Supernet summary** — shows parent networks for route summarization planning (clickable to recalculate)
 - **RFC classification** — RFC 1918, loopback, link-local, multicast, reserved, documentation range detection
 - **Quick examples** — common CIDR entries for fast access
+- **Flexible input** — `/27`, `255.255.255.224` or wildcard `0.0.0.31` masks, with results that update as you type
+- **Helpers** — prefix cheat sheet, "subnet for N hosts" finder, "is this IP in the subnet?" check, click any value to copy
+- **Windows DHCP scope export** — generates PowerShell (`Add-DhcpServerv4Scope` etc.) to run on the DHCP server; gateway and pool are auto-filled
+- **CSV / text export** — subnet details plus every subnet of a chosen size
+- **VLSM planner** — allocate subnets from a block by host count, largest first, with free-space and DHCP shortcuts
+- **Overlap checker** — finds duplicate and nested subnets in a pasted list
+- **Summarize / merge** — smallest route list covering exactly the same addresses
 
 ### Cloud CIDR Planning
 - **AWS VPC, GCP VPC, Azure VNet** — automatic subnet allocation across AZs/regions
@@ -313,8 +320,12 @@ netrecon/
         │   ├── idns.js         # Internal DNS logic
         │   └── idns-render.js  # Results rendering
         ├── calc/
-        │   ├── calc.js         # CIDR calculation logic
-        │   └── calc-render.js  # Binary display, subnet splits, supernets
+        │   ├── calc.js          # Input parsing and subnet math
+        │   ├── calc-render.js   # Binary display, subnet splits, supernets
+        │   ├── calc-tools.js    # Cheat sheet, host finder, IP check, live results
+        │   ├── calc-nettools.js # Pure logic: VLSM, overlaps, summarize, CSV
+        │   ├── calc-dhcp.js     # Windows DHCP scope PowerShell dialog
+        │   └── calc-planner.js  # Tabs and planner UI
         ├── cloud/
         │   ├── cloud-data.js   # Default tier presets (AWS/GCP/Azure)
         │   ├── cloud.js        # Planning logic, color picker

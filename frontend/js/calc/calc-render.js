@@ -1,7 +1,9 @@
-// NetRecon — IP Calculator Rendering — matches netrecon-old exactly
+// NetRecon — IP Calculator rendering: summary, details grid, binary view, supernets and subnet splits.
 
 'use strict';
 
+// Draws the full result for one subnet into the container element.
+// r comes from buildCalcResult() in calc.js.
 function renderCalcResults(r, container) {
   var html = '';
 
@@ -10,7 +12,7 @@ function renderCalcResults(r, container) {
   html += '<div class="cidr-banner">';
   html += '<div>';
   html += '<div class="cidr-network">' + h(r.network) + '/' + r.prefix + '</div>';
-  html += '<div class="cidr-desc">' + r.ipClass + ' &nbsp;·&nbsp; ' + formatNumber(r.totalHosts) + ' total IPs &nbsp;·&nbsp; ' + formatNumber(r.usableHosts) + ' usable</div>';
+  html += '<div class="cidr-desc">/' + r.prefix + ' = ' + h(r.mask) + ' &nbsp;&middot;&nbsp; ' + r.ipClass + ' &nbsp;·&nbsp; ' + formatNumber(r.totalHosts) + ' total IPs &nbsp;·&nbsp; ' + formatNumber(r.usableHosts) + ' usable</div>';
   html += '</div>';
   html += pill(r.rfc.label, r.rfc.cls);
   html += '</div>';
@@ -27,10 +29,22 @@ function renderCalcResults(r, container) {
     { label: 'Total Addresses',   value: formatNumber(r.totalHosts),  accent: false },
     { label: 'Usable Hosts',      value: formatNumber(r.usableHosts), accent: true  }
   ].forEach(function(f) {
-    html += '<div class="cidr-cell"><div class="cidr-lbl">' + f.label + '</div>';
+    html += '<div class="cidr-cell copyable" data-copy="' + h(String(f.value)) + '" title="Click to copy"><div class="cidr-lbl">' + f.label + '</div>';
     html += '<div class="cidr-val' + (f.accent ? ' accent' : '') + '">' + h(String(f.value)) + '</div></div>';
   });
   html += '</div></div>';
+
+  // ── IP-in-subnet check ───────────────────────────────────
+  html += '<div class="calc-check">';
+  html += '<span class="calc-check-lbl">Is this IP in ' + h(r.network) + '/' + r.prefix + '?</span>';
+  html += '<input class="calc-input calc-check-in" id="calcCheckIp" type="text" placeholder="e.g. ' + h(r.firstHost) + '" autocomplete="off" spellcheck="false" oninput="calcCheckIp()"/>';
+  html += '<span class="calc-check-out" id="calcCheckOut"></span>';
+  html += '</div>';
+
+  // ── Windows DHCP scope export ────────────────────────────
+  if (typeof renderDhcpPanel === 'function') html += renderDhcpPanel(r);
+
+  if (typeof renderCalcExportBar === 'function') html += renderCalcExportBar(r);
 
   // ── Binary Representation ────────────────────────────────
   html += '<div class="cidr-inner" style="animation:fu .22s ease both">';
@@ -204,8 +218,7 @@ function renderSupernets(r) {
   html += '</tr></thead><tbody>';
 
   prefixes.forEach(function(newPrefix) {
-    var superMask    = newPrefix === 0 ? 0 : (0xFFFFFFFF << (32 - newPrefix)) >>> 0;
-    var superNetwork = (r.networkLong & superMask) >>> 0;
+    var superNetwork = (r.networkLong & prefixToMaskLong(newPrefix)) >>> 0;
     var superNetIP   = long2ip(superNetwork);
     var superCidr    = superNetIP + '/' + newPrefix;
     var totalInSuper = Math.pow(2, 32 - newPrefix);

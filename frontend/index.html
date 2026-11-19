@@ -200,11 +200,12 @@
 
     <!-- CALC PAGE -->
     <div class="page" id="page-calc">
+      <div class="calc-tabs" id="calcTabs"></div>
       <div class="calc-hero">
         <div class="calc-title">IP / CIDR Calculator</div>
-        <div class="calc-sub">Enter an IP with CIDR prefix. Click any subnet split row to expand its full details.</div>
+        <div class="calc-sub">Enter an IP with a CIDR prefix or a subnet mask, like 192.168.1.0/27 or 192.168.1.0 255.255.255.224. Results update as you type.</div>
         <div class="calc-row">
-          <input class="calc-input" id="cidrInput" type="text" placeholder="e.g. 192.168.1.0/24" autocomplete="off" spellcheck="false"/>
+          <input class="calc-input" id="cidrInput" type="text" placeholder="e.g. 192.168.1.0/24 or 192.168.1.0 255.255.255.224" autocomplete="off" spellcheck="false"/>
           <button class="calc-btn" onclick="runCalc()">Calculate</button>
         </div>
         <div class="calc-examples">
@@ -214,17 +215,42 @@
           <span class="calc-chip" onclick="calcQuick('172.16.0.0/12')">172.16.0.0/12</span>
           <span class="calc-chip" onclick="calcQuick('203.0.113.0/26')">203.0.113.0/26</span>
           <span class="calc-chip" onclick="calcQuick('10.0.0.0/20')">10.0.0.0/20</span>
+          <span class="calc-chip" onclick="calcQuick('192.168.1.0 255.255.255.224')">192.168.1.0 255.255.255.224</span>
         </div>
+        <div class="calc-hosts">
+          <span class="calc-ex-lbl">Need a subnet for</span>
+          <input class="calc-hosts-in" id="calcHostsIn" type="text" inputmode="numeric" placeholder="50" autocomplete="off"/>
+          <span class="calc-ex-lbl">hosts?</span>
+          <span id="calcHostsOut"></span>
+        </div>
+        <details class="calc-cheat">
+          <summary>Prefix cheat sheet (/8 to /32)</summary>
+          <div id="calcCheat"></div>
+        </details>
+        <details class="calc-tips">
+          <summary>Tips: what can this do?</summary>
+          <ul>
+            <li><b>Any format works.</b> Use a prefix (<code>/27</code>), a subnet mask (<code>255.255.255.224</code>) or a wildcard mask (<code>0.0.0.31</code>).</li>
+            <li><b>Forgot what a prefix means?</b> Type a host count in "Need a subnet for…" or open the prefix cheat sheet.</li>
+            <li><b>Click a result value</b> (network, broadcast, mask, first host…) to copy it.</li>
+            <li><b>Is an IP in this subnet?</b> Use the check box under the results.</li>
+            <li><b>Click a split or supernet row</b> to see its subnets or move up a level.</li>
+            <li><b>Create DHCP scope</b> generates PowerShell for a Windows DHCP server. <b>Export</b> saves CSV or text.</li>
+            <li><b>Planning several subnets?</b> Use the <b>VLSM Planner</b> tab. <b>Overlap Check</b> finds conflicts and <b>Summarize</b> merges routes.</li>
+            <li><b>Share it.</b> The page address updates with your input, so you can bookmark or send a link to a result.</li>
+          </ul>
+        </details>
       </div>
       <div id="calc-results">
         <div class="welcome">
           <div class="welcome-ico" style="background:var(--ico-blue);color:var(--blue)">
             <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="3" y="3" width="16" height="16" rx="2.5" stroke="currentColor" stroke-width="1.7"/><line x1="7" y1="8" x2="10" y2="8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="7" y1="11.5" x2="15" y2="11.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="7" y1="15" x2="12" y2="15" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
           </div>
-          <div class="welcome-h">Enter a CIDR block to begin</div>
-          <div class="welcome-p">Calculates network address, broadcast, subnet mask, usable hosts, and binary representation. Includes subnet split options and supernet summary.</div>
+          <div class="welcome-h">Enter a CIDR block or subnet mask to begin</div>
+          <div class="welcome-p">Calculates network, broadcast, mask, usable hosts and binary form, with subnet splits and supernets. Also generates Windows DHCP scope scripts, exports CSV, and plans multiple subnets (VLSM) from the tabs above.</div>
         </div>
       </div>
+      <div id="calcToolPanels"></div>
     </div>
 
     <!-- CLOUD PAGE -->
@@ -362,7 +388,11 @@
 
 <!-- IP Calculator -->
 <script src="js/calc/calc.js"></script>
+<script src="js/calc/calc-nettools.js"></script>
 <script src="js/calc/calc-render.js"></script>
+<script src="js/calc/calc-tools.js"></script>
+<script src="js/calc/calc-dhcp.js"></script>
+<script src="js/calc/calc-planner.js"></script>
 
 <!-- Cloud CIDR -->
 <script src="js/cloud/cloud-data.js"></script>
