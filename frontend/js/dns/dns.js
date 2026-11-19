@@ -53,7 +53,8 @@ async function dnsQMulti(name) {
       body: JSON.stringify({
         name: name,
         types: ['A', 'AAAA', 'CNAME', 'MX', 'NS', 'TXT', 'SOA', 'CAA'],
-        emailSecurity: true
+        emailSecurity: true,
+        dnssec: true
       }),
       cache: 'no-store'
     });
@@ -186,6 +187,7 @@ async function runLookup() {
 
   var results = multi.results || {};
   var emailSec = multi.emailSecurity || {};
+  var dnssec   = multi.dnssec || null;      // DNSSEC status, see dns-dnssec.js
 
   // Map multi results to the format renderDnsResults expects
   var aRecs     = results.A     || [];
@@ -210,7 +212,7 @@ async function runLookup() {
   var geoData = (aRecs && aRecs.length) ? await Promise.all(aRecs.map(function(r) { return ipI(r.data); })) : [];
   prog(85);
 
-  renderDnsResults(raw, { aRecs, aaaaRecs, cnameRecs, mxRecs, txtRecs, nsRecs, soaRecs, caaRecs, dmarcRecs, dkimRecs, geoData });
+  renderDnsResults(raw, { aRecs, aaaaRecs, cnameRecs, mxRecs, txtRecs, nsRecs, soaRecs, caaRecs, dmarcRecs, dkimRecs, geoData, dnssec });
 
   // Fire blacklist + TLS checks in parallel (non-blocking — append cards when ready)
   var firstIp = (aRecs && aRecs.length) ? aRecs[0].data : null;

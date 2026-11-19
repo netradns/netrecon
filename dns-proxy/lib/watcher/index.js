@@ -9,6 +9,7 @@
 //   3. On each tick, every watched domain is checked against its
 //      configured interval — if enough time has passed, it's polled
 //   4. Polling, diffing, and alerting are delegated to their modules
+//   5. An entry can watch DNS records, a TLS certificate, or both
 //
 // This "single timer, per-domain interval check" pattern avoids
 // creating one timer per domain (which would be hard to manage as
@@ -19,6 +20,7 @@
 const { getWatched, saveWatched }          = require('./snapshot');
 const { pollDomain }                       = require('./poller');
 const { diffRecords }                      = require('./diff');
+const { checkCertificate }                 = require('./cert-check');
 const { alertRecordChanged, alertRecovered, alertError } = require('./alerts');
 const { MAX_CHANGE_HISTORY }               = require('../config');
 
@@ -119,6 +121,59 @@ async function checkDomain(entry, watched) {
   }
 }
 
+// ── One watched entry ─────────────────────────────────────────────
+// Entries currently being checked, so a scheduled check and a "check now"
+// request for the same entry never run at the same time.
+const _inFlight = new Set();
+
+// What the main Status column shows for a certificate-only entry
+const CERT_ENTRY_STATUS = { ok: 'stable', expiring: 'changed', expired: 'error', error: 'error', pending: 'pending' };
+
+/**
+ * Runs every check an entry asks for: DNS records, TLS certificate, or both.
+ *
+ * @param {Object}  entry   - Watched entry
+ * @param {Object}  watched - Full watched state (mutated in place)
+ * @param {Object}  [opts]
+ * @param {boolean} [opts.force] - Check the certificate now even if it was checked recently
+ */
+async function checkEntry(entry, watched, opts) {
+  if (_inFlight.has(entry.id)) return;
+  _inFlight.add(entry.id);
+
+  try {
+    const watchesDns = Array.isArray(entry.recordTypes) && entry.recordTypes.length > 0;
+
+    if (watchesDns) await checkDomain(entry, watched);
+
+    if (entry.cert && entry.cert.enabled) {
+      try {
+        await checkCertificate(entry, watched, { force: !!(opts && opts.force) });
+      } catch (err) {
+        console.error(`[watcher] Certificate check failed for ${entry.domain}: ${err.message}`);
+      }
+    }
+
+    // A certificate-only entry has no DNS poll, so its status comes from the certificate
+    if (!watchesDns) {
+      entry.lastChecked = Date.now();
+      entry.status      = CERT_ENTRY_STATUS[entry.certStatus] || 'pending';
+    }
+    saveWatched(watched);
+
+  } finally {
+    _inFlight.delete(entry.id);
+  }
+}
+
+/**
+ * Checks one entry immediately. Used right after an entry is added, so the
+ * admin sees a first result without waiting for the next scheduler tick.
+ */
+function checkNow(entry) {
+  return checkEntry(entry, getWatched(), { force: true });
+}
+
 // ── Scheduler tick ────────────────────────────────────────────────
 /**
  * Called on every TICK_MS interval.
@@ -144,7 +199,7 @@ async function tick() {
     if (now - lastChecked >= intervalMs) {
       // Await each domain sequentially to avoid hammering DNS servers
       // when many domains are due at the same time
-      await checkDomain(entry, watched);
+      await checkEntry(entry, watched);
     }
   }
 }
@@ -169,4 +224,4 @@ function start() {
   }, TICK_MS).unref();
 }
 
-module.exports = { start, tick, checkDomain };
+module.exports = { start, tick, checkDomain, checkEntry, checkNow };

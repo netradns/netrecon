@@ -1,32 +1,50 @@
 // ── NetRecon Admin — Add Watched Domain Form ─────────────────────
-// Handles the "Add Domain" form in the Watched Domains page.
+// Handles the "Watch" form in the Watched Domains page.
 // Validates input and calls POST /api/admin/watched.
+//
+// An entry can watch DNS records, a TLS certificate, or both:
+//   - Domain, DNS records only            example.com + A, MX, TXT
+//   - Domain, certificate only            example.com + no records + certificate on
+//   - IP address (certificate only)       10.0.0.5 + certificate on
+// Nothing here requires a domain or a public certificate. Internal servers,
+// IP addresses and self-signed certificates all work (choose Internal DNS).
 
 'use strict';
 
-// ── Render the add-domain form ────────────────────────────────────
+// Warning presets for certificate expiry (days before the certificate ends)
+const CERT_WARN_PRESETS = [
+  { value: '30,14,7',   label: 'Standard: 30, 14 and 7 days before' },
+  { value: '14,7,3',    label: 'Auto-renewing (e.g. Let\'s Encrypt): 14, 7 and 3 days' },
+  { value: '60,30,14,7', label: 'Early warning: 60, 30, 14 and 7 days' },
+];
+
+// Record types ticked by default
+const DEFAULT_WATCH_TYPES = ['A', 'MX', 'TXT', 'NS'];
+
+// ── Render the add form ───────────────────────────────────────────
 /**
- * Returns the HTML for the Add Domain form panel.
+ * Returns the HTML for the Watch form panel.
  * Rendered once by watched.js into the page shell.
  * @returns {string} HTML string
  */
 function renderWatchedForm() {
   return `
     <div class="panel" style="margin-bottom:20px" id="addWatchedPanel">
-      <div style="font-size:14px;font-weight:600;margin-bottom:4px">Watch a Domain</div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px">Watch a Domain or Certificate</div>
       <div style="font-size:12px;color:var(--text-3);margin-bottom:14px">
-        NetRecon will poll the domain on the configured interval and alert you when any DNS records change.
+        NetRecon checks on the interval you choose and alerts you when DNS records change or a TLS certificate is about to expire.
+        Both are optional, so use whichever you need. Servers without a public domain work too: enter an IP address and turn on certificate monitoring.
       </div>
       <div class="field-row">
         <div class="field-group">
-          <label class="field-label">Domain</label>
-          <input class="f-input mono" id="watchDomain" placeholder="example.com" autocomplete="off" spellcheck="false">
+          <label class="field-label">Domain or IP address</label>
+          <input class="f-input mono" id="watchDomain" placeholder="example.com or 10.0.0.5" autocomplete="off" spellcheck="false">
         </div>
         <div class="field-group">
           <label class="field-label">Source</label>
           <select class="f-input f-select" id="watchSource">
             <option value="public">Public DNS</option>
-            <option value="internal">Internal DNS</option>
+            <option value="internal">Internal DNS (your own servers)</option>
           </select>
         </div>
         <div class="field-group">
@@ -43,11 +61,11 @@ function renderWatchedForm() {
 
       <!-- Record type checkboxes -->
       <div style="margin-bottom:14px">
-        <label class="field-label">Record Types to Watch</label>
+        <label class="field-label">DNS record types to watch <span style="font-weight:400;color:var(--text-3)">(leave all unticked to watch only the certificate)</span></label>
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px" id="watchRecordTypes">
           ${['A','AAAA','MX','TXT','NS','CNAME','SOA','CAA'].map(t => `
             <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">
-              <input type="checkbox" value="${t}" ${['A','MX','TXT','NS'].includes(t) ? 'checked' : ''} class="watch-type-cb">
+              <input type="checkbox" value="${t}" ${DEFAULT_WATCH_TYPES.includes(t) ? 'checked' : ''} class="watch-type-cb">
               <span class="mono">${t}</span>
             </label>`).join('')}
           <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">
@@ -57,11 +75,41 @@ function renderWatchedForm() {
         </div>
       </div>
 
-      <button class="btn btn-primary btn-sm" onclick="submitAddWatched()">Add Domain</button>
+      <!-- TLS certificate monitoring -->
+      <div style="margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg)">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer">
+          <input type="checkbox" id="watchCertOn" onchange="onWatchCertToggle(this)">
+          Also monitor the TLS certificate
+        </label>
+        <div style="font-size:12px;color:var(--text-3);margin:4px 0 0 22px">
+          Alerts when the certificate is close to expiring, has expired, or has been replaced.
+          Works with self-signed and internal certificates. For servers on your own network, set Source to Internal DNS.
+        </div>
+        <div id="watchCertOptions" style="display:none;margin:12px 0 0 22px">
+          <div class="field-row" style="margin-bottom:0">
+            <div class="field-group" style="max-width:130px">
+              <label class="field-label">Port</label>
+              <input class="f-input mono" id="watchCertPort" value="443" inputmode="numeric" autocomplete="off">
+            </div>
+            <div class="field-group">
+              <label class="field-label">Warn me</label>
+              <select class="f-input f-select" id="watchCertWarn">
+                ${CERT_WARN_PRESETS.map(p => `<option value="${p.value}">${p.label}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--text-3);margin-top:6px">
+            Common ports: 443 (HTTPS), 636 (LDAPS), 8443 (alternate HTTPS), 993 and 995 (mail), 3389 (Remote Desktop).
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary btn-sm" onclick="submitAddWatched()">Add</button>
     </div>`;
 }
 
-// ── ALL toggle ────────────────────────────────────────────────────
+// ── Form toggles ──────────────────────────────────────────────────
+
 /**
  * When "ALL" is checked, uncheck and disable individual type checkboxes.
  * When "ALL" is unchecked, re-enable them and restore the defaults.
@@ -75,9 +123,22 @@ function onWatchAllToggle(allCb) {
     // Re-enable and restore defaults
     cbs.forEach(cb => {
       cb.disabled = false;
-      cb.checked  = ['A', 'MX', 'TXT', 'NS'].includes(cb.value);
+      cb.checked  = DEFAULT_WATCH_TYPES.includes(cb.value);
     });
   }
+}
+
+/** Show the port and warning options only while certificate monitoring is ticked. */
+function onWatchCertToggle(cb) {
+  const opts = document.getElementById('watchCertOptions');
+  if (opts) opts.style.display = cb.checked ? 'block' : 'none';
+}
+
+// ── Helpers ───────────────────────────────────────────────────────
+
+/** True for something that looks like a dotted IPv4 address (four numbers). */
+function looksLikeIp(s) {
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(s);
 }
 
 // ── Submit ────────────────────────────────────────────────────────
@@ -88,37 +149,55 @@ async function submitAddWatched() {
   const domain   = (document.getElementById('watchDomain')   || {}).value?.trim().toLowerCase() || '';
   const source   = (document.getElementById('watchSource')   || {}).value || 'public';
   const interval = parseInt((document.getElementById('watchInterval') || {}).value || '60', 10);
+  const certOn   = !!(document.getElementById('watchCertOn') || {}).checked;
 
-  if (!domain) { adminToast('Enter a domain name', true); return; }
+  if (!domain) { adminToast('Enter a domain name or IP address', true); return; }
   if (!/^[a-z0-9._-]+$/.test(domain)) { adminToast('Invalid domain name', true); return; }
 
-  // Collect selected record types
+  // Certificate settings
+  let cert = null;
+  if (certOn) {
+    const port = parseInt((document.getElementById('watchCertPort') || {}).value, 10);
+    if (!(port >= 1 && port <= 65535)) { adminToast('Enter a port from 1 to 65535', true); return; }
+    const warnDays = ((document.getElementById('watchCertWarn') || {}).value || '30,14,7').split(',').map(Number);
+    cert = { enabled: true, port, warnDays };
+  }
+
+  // Record types
   const allCb = document.querySelector('.watch-type-cb[value="ALL"]');
   let recordTypes;
   if (allCb && allCb.checked) {
     recordTypes = ['ALL'];
   } else {
     recordTypes = Array.from(document.querySelectorAll('.watch-type-cb:checked')).map(cb => cb.value);
-    if (!recordTypes.length) { adminToast('Select at least one record type', true); return; }
+  }
+
+  // An IP address has no DNS records, so it can only be a certificate watch
+  if (looksLikeIp(domain)) {
+    if (!cert) { adminToast('An IP address has no DNS records. Tick "Also monitor the TLS certificate".', true); return; }
+    recordTypes = [];
+  } else if (!recordTypes.length && !cert) {
+    adminToast('Pick at least one record type, or tick certificate monitoring', true);
+    return;
   }
 
   try {
     const r = await adminFetch('/api/admin/watched', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ domain, source, recordTypes, interval }),
+      body:    JSON.stringify({ domain, source, recordTypes, interval, cert }),
     });
     const d = await r.json();
 
     if (r.ok) {
       adminToast(`Now watching ${domain}`);
-      // Clear the domain input
       const domainEl = document.getElementById('watchDomain');
       if (domainEl) domainEl.value = '';
-      // Reload the table
       loadWatchedPage();
+      // The first certificate check runs in the background; refresh once more shortly after
+      if (cert) setTimeout(loadWatchedPage, 2500);
     } else {
-      adminToast(d.error || 'Failed to add domain', true);
+      adminToast(d.error || 'Failed to add', true);
     }
   } catch (e) {
     adminToast('Error: ' + e.message, true);

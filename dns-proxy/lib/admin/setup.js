@@ -19,7 +19,7 @@
 
 'use strict';
 
-const crypto = require('crypto');
+const { hashPassword, validateNewPassword } = require('./password');
 const { getConfig, saveConfig } = require('./config-store');
 
 /**
@@ -37,7 +37,7 @@ function handleSetupStatus(req, res, jsonSafe) {
  * Accepts the initial configuration from the setup wizard.
  *
  * Body: {
- *   password:    string,   // plaintext admin password (hashed before storing)
+ *   password:    string,   // plaintext admin password, 8+ characters (stored as a salted hash)
  *   dnsServers:  string,   // comma-separated internal DNS server IPs (optional)
  *   publicDns:   string,   // comma-separated public DNS IPs (optional)
  *   allowedDomains: string // comma-separated allowed domains (optional)
@@ -56,15 +56,16 @@ function handleSetup(req, res, jsonSafe, readBody) {
   }
 
   // Read and parse the request body
-  readBody(req).then(raw => {
+  readBody(req).then(async raw => {
     let body;
     try { body = JSON.parse(raw); }
     catch { return jsonSafe(res, 400, { error: 'Invalid JSON body' }); }
 
     // ── Validate password (required) ──────────────────────────
-    const password = String(body.password || '').trim();
-    if (!password || password.length < 4) {
-      return jsonSafe(res, 400, { error: 'Password is required (minimum 4 characters)' });
+    const password = String(body.password || '');
+    const problem  = validateNewPassword(password);
+    if (problem) {
+      return jsonSafe(res, 400, { error: problem });
     }
 
     // ── Parse DNS servers (optional) ──────────────────────────
@@ -91,12 +92,13 @@ function handleSetup(req, res, jsonSafe, readBody) {
     const dnsTimeout = parseInt(body.dnsTimeout, 10) || 5000;
 
     // ── Hash the password ─────────────────────────────────────
-    const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
+    const adminPassword = await hashPassword(password);   // salted scrypt, see password.js
 
     // ── Save everything to config-store ───────────────────────
     saveConfig({
       setupComplete:      true,
-      statsPasswordHash:  passwordHash,
+      adminPassword:      adminPassword,
+      statsPasswordHash:  null,
       dnsServers:         dnsServers,
       publicDns:          publicDns.length ? publicDns : ['1.1.1.1', '8.8.8.8'],
       allowedDomains:     allowedDomains,

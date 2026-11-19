@@ -3,7 +3,7 @@
 'use strict';
 
 function renderDnsResults(domain, d) {
-  var { aRecs, aaaaRecs, cnameRecs, mxRecs, txtRecs, nsRecs, soaRecs, caaRecs, dmarcRecs, dkimRecs, geoData } = d;
+  var { aRecs, aaaaRecs, cnameRecs, mxRecs, txtRecs, nsRecs, soaRecs, caaRecs, dmarcRecs, dkimRecs, geoData, dnssec } = d;
 
   var hasSPF   = !!(txtRecs  && txtRecs.find(function(r)  { return r.data.replace(/^"|"$/g,'').startsWith('v=spf1'); }));
   var hasDKIM  = !!(dkimRecs && dkimRecs.length);
@@ -18,6 +18,7 @@ function renderDnsResults(domain, d) {
   html += pill((hasSPF   ? '✓ ' : '✕ ') + 'SPF',   hasSPF   ? 'p-green' : 'p-red');
   html += pill((hasDKIM  ? '✓ ' : '✕ ') + 'DKIM',  hasDKIM  ? 'p-green' : 'p-red');
   html += pill((hasDMARC ? '✓ ' : '✕ ') + 'DMARC', hasDMARC ? 'p-green' : 'p-red');
+  if (typeof dnssecPill === 'function') html += dnssecPill(dnssec);   // DNSSEC status, see dns-dnssec.js
   html += '<span class="h-domain">' + h(domain) + '</span>';
   html += '</div>';
   delay += 40;
@@ -162,6 +163,12 @@ function renderDnsResults(domain, d) {
   }
   html += card('sec-ns', 'var(--ico-green)', '⬡', 'NS Records', 'Authoritative Nameservers', nsRecs ? nsRecs.length : 0, nsBody, delay);
   delay += 40;
+
+  // ── DNSSEC status (public lookups only) ────────────────────
+  if (typeof renderDnssecCard === 'function') {
+    var dnssecHtml = renderDnssecCard(dnssec, delay);
+    if (dnssecHtml) { html += dnssecHtml; delay += 40; }
+  }
 
   // ── 9. SOA Record ────────────────────────────────────────
   var soaBody = '';

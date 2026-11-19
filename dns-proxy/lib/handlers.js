@@ -20,12 +20,12 @@
 
 const https = require('https');
 const http  = require('http');
-const { resolveAll, ipToArpa } = require('./resolver');
+const { resolveAll, ipToArpa, dohFetch } = require('./resolver');
+const { checkDnssec } = require('./dnssec');
 const stats = require('./stats');
 const {
   DNS_SERVERS: ENV_DNS_SERVERS, PUBLIC_TIMEOUT, DNS_TIMEOUT, ALLOWED_DOMAINS: ENV_ALLOWED_DOMAINS,
 } = require('./config');
-const { getActiveHash } = require('./admin/password');
 const { getConfig }     = require('./admin/config-store');
 const { checkBlacklists } = require('./blacklist');
 const { checkCert }       = require('./tls-check');
@@ -158,8 +158,8 @@ function handleHealth(req, res) {
 /**
  * GET /app-config
  * Returns non-sensitive runtime configuration for the frontend.
- * - statsPasswordHash: used by the login gate to validate the password
- *   client-side without the plaintext ever being transmitted.
+ * Public route: it must never contain anything that grants access.
+ * - setupComplete: whether the first-run wizard has been finished.
  * - internalDnsEnabled: controls whether the Internal DNS tool is shown.
  *   Reads from config-store so UI changes take effect without restart.
  */
@@ -167,7 +167,6 @@ function handleAppConfig(req, res) {
   const cfg = getConfig();
   return jsonSafe(res, 200, {
     setupComplete:      cfg.setupComplete === true,
-    statsPasswordHash:  getActiveHash(),
     internalDnsEnabled: cfg.internalDnsEnabled === false ? false : true,
     dnsQuickLinks:      cfg.dnsQuickLinks  || [],
     idnsQuickLinks:     cfg.idnsQuickLinks || [],
@@ -253,6 +252,9 @@ async function handleDnsQuery(req, res, query) {
  *
  * emailSecurity: true also queries _dmarc, default._domainkey,
  * _mta-sts, and _smtp._tls sub-domains.
+ *
+ * dnssec: true also reports whether the domain is DNSSEC-signed and validates
+ * (see dnssec.js). Ignored for IP addresses, which have no DNSSEC status.
  */
 async function handleDnsQueryMulti(req, res) {
   let body;
@@ -281,10 +283,13 @@ async function handleDnsQueryMulti(req, res) {
     { name: `_smtp._tls.${name}`,         type: 'TXT', label: 'SMTP TLS'        },
   ] : [];
 
+  // DNSSEC applies to names, not IP addresses
+  const wantDnssec = body.dnssec === true && !/^[\d.]+$/.test(name);
+
   const t0 = Date.now();
 
   // Fire all queries in parallel — this is the key performance win
-  const [stdResults, emailResults] = await Promise.all([
+  const [stdResults, emailResults, dnssec] = await Promise.all([
     Promise.all(types.map(t =>
       resolveAll(name, t, true, PUBLIC_TIMEOUT).then(recs => ({ type: t, records: recs }))
     )),
@@ -293,6 +298,9 @@ async function handleDnsQueryMulti(req, res) {
         label: q.label, name: q.name, records: recs,
       }))
     )),
+    wantDnssec
+      ? checkDnssec(name, (n, t, flags) => dohFetch(n, t, PUBLIC_TIMEOUT, flags)).catch(() => null)
+      : null,
   ]);
 
   const responseMs = Date.now() - t0;
@@ -316,7 +324,7 @@ async function handleDnsQueryMulti(req, res) {
   });
   stats.save(st);
 
-  return jsonSafe(res, 200, { name, results, emailSecurity, responseMs });
+  return jsonSafe(res, 200, { name, results, emailSecurity, dnssec, responseMs });
 }
 
 /**

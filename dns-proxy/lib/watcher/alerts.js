@@ -99,4 +99,52 @@ async function alertError(entry, error) {
   });
 }
 
-module.exports = { alertRecordChanged, alertRecovered, alertError };
+// ── Certificate alerts ───────────────────────────────────────────
+
+// Title, level and wording for each certificate event
+function certAlertParts(event, state) {
+  const days = state.daysLeft;
+  switch (event.type) {
+    case 'expiring': return { icon: days <= 7 ? '🔴' : '⚠️', level: days <= 7 ? 'danger' : 'warning',
+                              title: `Certificate Expiring in ${days} day${days === 1 ? '' : 's'}` };
+    case 'expired':  return { icon: '🔴', level: 'danger',  title: 'Certificate Expired' };
+    case 'renewed':  return { icon: '✅', level: 'success', title: 'Certificate Renewed' };
+    case 'changed':  return { icon: '⚠️', level: 'warning', title: 'Certificate Replaced' };
+    case 'error':    return { icon: '🔴', level: 'danger',  title: 'Certificate Check Failing' };
+    case 'recovered': return { icon: '✅', level: 'success', title: 'Certificate Check Recovered' };
+    default:         return { icon: 'ℹ️', level: 'info',    title: 'Certificate Update' };
+  }
+}
+
+/**
+ * Sends a notification for one certificate event.
+ *
+ * @param {Object} entry - Watched entry (domain, source, cert.port)
+ * @param {Object} event - Event from cert.js evaluateCert()
+ * @param {Object} state - Certificate state after the check
+ */
+async function alertCert(entry, event, state) {
+  const { icon, level, title } = certAlertParts(event, state);
+  const host = `${entry.domain}:${entry.cert.port}`;
+
+  const fields = [
+    { label: 'Host',   value: host },
+    { label: 'Source', value: entry.source === 'internal' ? 'Internal DNS' : 'Public DNS' },
+  ];
+
+  if (event.type === 'error') {
+    fields.push({ label: 'Error', value: event.message });
+  } else if (event.type !== 'recovered' || state.validTo) {
+    if (state.validTo)    fields.push({ label: 'Expires', value: `${new Date(state.validTo).toISOString().slice(0, 10)} (${state.daysLeft} days)` });
+    if (state.commonName) fields.push({ label: 'Name',    value: state.commonName });
+    if (state.issuer)     fields.push({ label: 'Issuer',  value: state.issuer });
+    if (event.type === 'changed' || event.type === 'renewed') {
+      if (event.issuerChanged) fields.push({ label: 'Issuer changed', value: `from ${event.previousIssuer}` });
+    }
+  }
+
+  fields.push({ label: 'Detected', value: new Date().toISOString() });
+
+  await dispatch({ title: `${icon} ${title} — ${entry.domain}`, level, fields, _event: `cert_${event.type}` });
+}
+module.exports = { alertRecordChanged, alertRecovered, alertError, alertCert, certAlertParts };

@@ -34,6 +34,7 @@
 - **IPv4 + IPv6** — full support for both address families including IPv6 PTR lookups
 - **Clickable IPs** — click any A/AAAA result to instantly run a full IP lookup with map
 - **TLS Certificate check** — subject, issuer, SANs, expiry countdown, cipher, protocol version, full chain display
+- **DNSSEC status** — shows whether a domain is signed and validated, partially configured, failing validation, or simply not signed (the common, harmless case). Includes the signing algorithm, DS records and key roles. Public lookups only.
 - **DNSBL Blacklist check** — tests IPs against 10 major blacklists (Spamhaus, SpamCop, Barracuda, SORBS, etc.) in parallel
 - **Split-brain safe** — public tool uses Cloudflare DoH exclusively, never leaks internal records
 - **Multi-type parallel resolution** — all record types resolved in one request (~300ms vs sequential ~6s)
@@ -75,6 +76,7 @@
 - **Change History** — full audit log per domain showing what changed, when, and the before/after values
 - **Multi-record support** — monitor A, AAAA, MX, TXT, NS, CNAME, SOA, CAA, or all at once
 - **Public + Internal** — watch domains against Cloudflare DoH or your own private DNS servers
+- **TLS certificate watching** — optional per entry. Alerts once as a certificate crosses each warning threshold (default 30, 14 and 7 days), when it expires, when it is renewed or replaced, and when checks keep failing. Works with IP addresses, internal servers, self-signed certificates and any port (LDAPS, 8443, ...), so no public domain or public certificate is needed
 - **Detail panel** — click any watched domain to see its current snapshot, last check time, and full change log
 
 ### Notifications & Alerting
@@ -92,7 +94,7 @@
 - **Hourly volume chart** — 24-hour query volume visualization
 - **Record type distribution** — breakdown of which DNS record types are queried most
 - **Error tracking** — NXDOMAIN, timeouts, and other failures counted and displayed
-- **Login protected** — SHA-256 hashed credentials, session-based auth
+- **Login protected** — password checked on the server and stored as a salted scrypt hash, with expiring server-side sessions and login lockout
 
 ### General
 - **First-run setup wizard** — browser-based setup on first launch, no config files to edit
@@ -104,7 +106,7 @@
 - **Mobile responsive** — full breakpoint support for tablets and phones
 - **Keyboard shortcuts** — Enter to search, sidebar navigation
 - **Rate limited** — nginx rate limiting on all API endpoints prevents abuse
-- **Security hardened** — CSP headers, no inline scripts, non-root containers, request size limits, input validation
+- **Security hardened** — CSP headers, non-root containers, request size limits, input validation, private-address guard on the public TLS check, admin and stats endpoints behind a login
 - **Zero npm dependencies** — dns-proxy uses only Node.js built-ins (no supply chain risk)
 - **Persistent data** — all settings, stats, watched domains, and notification logs survive container restarts
 
@@ -143,13 +145,13 @@
 - Docker + Docker Compose
 - Your internal DNS server IPs (for the Internal DNS tool)
 
-### 1. Create the project directory
+### 1. Create `docker-compose.yml`
 
 ```bash
 mkdir netrecon && cd netrecon
 ```
 
-### 2. Create `docker-compose.yml`
+Save this as `docker-compose.yml` (it is also in the repository as `docker-compose.example.yml`):
 
 ```yaml
 services:
@@ -169,42 +171,53 @@ services:
     container_name: netrecon-dns-proxy
     restart: unless-stopped
     volumes:
-      - ./data:/data
+      - netrecon-data:/data
     networks:
       - netrecon-internal
     expose:
       - "3053"
+
+volumes:
+  netrecon-data:
 
 networks:
   netrecon-internal:
     driver: bridge
 ```
 
-### 3. Start
+### 2. Start
 
 ```bash
-mkdir -p ./data
 docker compose up -d
 ```
 
-### 4. Complete Setup
+No folders to create and no permissions to fix.
 
-Open `http://localhost:8085` — the setup wizard will guide you through:
-- Setting an admin password
-- Optionally configuring internal DNS servers
+### 3. Complete setup
+
+Open `http://<server-ip>:8085` (or `http://localhost:8085`). The setup wizard asks for:
+- An admin password (8 characters or more)
+- Optionally, your internal DNS servers
 
 All settings can be changed later in the admin panel (Settings → Server).
+
+You do not need a domain name or a certificate. NetRecon works by IP address over plain HTTP. If you want HTTPS, or you run it behind Traefik, a cloud load balancer or Cloudflare, see **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**. Ready-made files are included:
+
+| File | For |
+|------|-----|
+| `docker-compose.example.yml` | The simplest setup above |
+| `docker-compose.traefik.example.yml` | You already run Traefik |
+| `docker-compose.caddy.example.yml` | A domain name with automatic HTTPS |
 
 ### Without Docker Compose
 
 ```bash
 docker network create netrecon-internal
-
-mkdir -p /docker/netrecon/data
+docker volume create netrecon-data
 
 docker run -d --name netrecon-dns-proxy \
   --network netrecon-internal \
-  -v /docker/netrecon/data:/data \
+  -v netrecon-data:/data \
   --expose 3053 \
   --restart unless-stopped \
   ghcr.io/netradns/netrecon-dns-proxy:latest
@@ -216,15 +229,31 @@ docker run -d --name netrecon \
   ghcr.io/netradns/netrecon:latest
 ```
 
-### 3. Access
+### Where things are
 
 | URL | Description |
 |-----|-------------|
 | `http://localhost:8085` | Main application |
-| `http://localhost:8085/admin` | Admin panel — usage stats, watched domains, settings (login: admin / admin) |
+| `http://localhost:8085/admin` | Admin panel: usage stats, watched domains, settings. Sign in as `admin` with the password from the setup wizard. |
 
-> **Change the admin password** — log in to the admin panel and go to **Settings → Security → Change Password**. Takes effect immediately, no container restart needed.
+> **Change the admin password** any time under **Settings → Security → Change Password** (8 characters or more). Takes effect immediately, no restart. Until you set your own, the admin panel shows a reminder.
 
+### Managing NetRecon
+
+```bash
+docker compose pull && docker compose up -d     # update to the latest version
+docker compose logs -f dns-proxy                # watch what it is doing
+docker compose ps                               # both containers should say "healthy"
+```
+
+**Forgot the admin password?**
+
+```bash
+docker compose exec -u node dns-proxy node reset-password.js
+docker compose restart dns-proxy
+```
+
+It prints a new random password once. Backups, choosing your own password and more are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 ---
 
 ## Configuration
@@ -245,6 +274,16 @@ On first launch, a setup wizard guides you through the initial configuration. Af
 | Quick links | Settings → General | Customize the quick-link chips on lookup pages |
 
 All changes take effect immediately — no container restart required.
+
+### Security Notes
+
+- **Works without HTTPS or a domain.** You can reach NetRecon by IP address over plain HTTP, for example `http://192.168.1.50:8085`, and still sign in. The login screen shows a gentle notice in that case because the password crosses your network unencrypted. Put NetRecon behind HTTPS when you can, and always do so if it is reachable from the internet.
+- **Login.** The password is sent once to the server, which checks it and returns a random session token. Sessions end after 2 hours without use or 12 hours in total, when you sign out, and when the password is changed elsewhere. Restarting the container signs everyone out.
+- **Lockout.** 5 wrong passwords from one IP lock that IP out for 15 minutes, on top of the nginx rate limit.
+- **Upgrading.** Existing installs keep working. The old password hash is upgraded to a salted hash the first time you sign in.
+- **Behind a proxy or load balancer.** Lockouts and rate limits count per visitor. NetRecon reads the visitor's real address from X-Forwarded-For, but only when the connection comes from a proxy on a private address (Traefik, Caddy, AWS ALB and Azure Application Gateway all qualify), so a visitor cannot fake it. If your proxy connects from a public address, such as Google Cloud's load balancer or Cloudflare, add it with the TRUSTED_PROXIES setting. **Settings → Security → Your Connection** shows the address NetRecon sees for you. Details are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+- **Public TLS check.** It refuses private, loopback and link-local addresses, so it cannot be pointed at your internal network. Certificate watches of internal hosts are configured by the admin and are allowed to reach private addresses.
+- **Set the admin password before exposing a new instance.** Until the first-run wizard is finished, anyone who can reach the page can finish it.
 
 ### Customizing Quick Links
 
@@ -271,20 +310,33 @@ Edit `frontend/js/cloud/cloud-data.js` to change default subnet tiers for each p
 ```
 netrecon/
 ├── docker-compose.yml          # Production deployment
-├── docker-compose.example.yml  # Template for new deployments
+├── docker-compose.example.yml  # Template for new deployments (simplest setup)
+├── docker-compose.traefik.example.yml  # Behind Traefik
+├── docker-compose.caddy.example.yml    # Automatic HTTPS with Caddy
 ├── Dockerfile                  # nginx container
 ├── nginx.conf                  # Reverse proxy + security headers
+├── docker/nginx/
+│   └── 40-netrecon-realip.sh   # Works out the real visitor IP behind a proxy (runs at container start)
+├── docs/
+│   └── DEPLOYMENT.md           # Traefik, Caddy, AWS/GCP/Azure, Cloudflare, backups, password reset
 ├── dns-proxy/
+│   ├── test/                   # Unit and end-to-end tests (node:test, no dependencies)
 │   ├── server.js               # Entry point (routing only)
+│   ├── reset-password.js       # Command-line admin password reset
+│   ├── docker-entrypoint.sh    # Prepares /data and drops root privileges
 │   ├── Dockerfile
 │   └── lib/
 │       ├── config.js           # All environment variables
 │       ├── resolver.js         # DoH + UDP DNS resolution
 │       ├── handlers.js         # HTTP route handlers
+│       ├── dnssec.js           # DNSSEC status (validated, partial, failing, not signed)
+│       ├── net-guard.js        # Private/reserved address checks for the public TLS tool
+│       ├── tls-check.js        # TLS certificate reader
 │       ├── stats.js            # Stats persistence
 │       ├── admin/
 │       │   ├── config-store.js # Runtime config I/O (/data/config.json)
-│       │   ├── password.js     # Password hash/verify logic
+│       │   ├── password.js     # Salted scrypt hashing, verify, change
+│       │   ├── session.js      # Session tokens, login lockout, auth guard
 │       │   └── handlers.js     # HTTP handlers for /admin/* routes
 │       ├── notify/
 │       │   ├── dispatcher.js   # Routes events to all configured channels
@@ -301,6 +353,8 @@ netrecon/
 │           ├── snapshot.js     # Watched domains state I/O (/data/watched.json)
 │           ├── poller.js       # Resolves a single domain, returns records
 │           ├── diff.js         # Pure function: compares two record sets
+│           ├── cert.js         # Certificate alert rules (pure, unit-tested)
+│           ├── cert-check.js   # Runs one certificate check and records the result
 │           └── alerts.js       # Formats + dispatches change notifications
 └── frontend/
     ├── index.html              # Main application
@@ -315,14 +369,15 @@ netrecon/
         │   └── custom-select.js # App-native dropdown component
         ├── dns/
         │   ├── dns.js          # DNS/IP lookup logic
-        │   └── dns-render.js   # Results rendering (10 record type cards)
+        │   ├── dns-render.js   # Results rendering (10 record type cards)
+        │   └── dns-dnssec.js   # DNSSEC badge and card
         ├── idns/
         │   ├── idns.js         # Internal DNS logic
         │   └── idns-render.js  # Results rendering
         ├── calc/
         │   ├── calc.js          # Input parsing and subnet math
         │   ├── calc-render.js   # Binary display, subnet splits, supernets
-        │   ├── calc-tools.js    # Cheat sheet, host finder, IP check, live results
+        │   ├── calc-tools.js    # Cheat sheet, host finder, live results
         │   ├── calc-nettools.js # Pure logic: VLSM, overlaps, summarize, CSV
         │   ├── calc-dhcp.js     # Windows DHCP scope PowerShell dialog
         │   └── calc-planner.js  # Tabs and planner UI
@@ -380,6 +435,17 @@ Contributions are welcome. The codebase is intentionally modular — each featur
 - Small, single-purpose functions
 - No external npm packages in the frontend
 
+### Tests
+
+The dns-proxy has tests built on Node's own test runner, so there is still nothing to install:
+
+```bash
+cd dns-proxy
+npm test
+```
+
+They cover the admin login, password upgrade, certificate alert rules, DNSSEC parsing, the private-address guard, and real TLS handshakes against a local test server. CI runs them before building the images.
+
 ### Before submitting a PR
 
 - Test in light and dark themes
@@ -400,9 +466,12 @@ Contributions are welcome. The codebase is intentionally modular — each featur
 - Check port 53 UDP is open between the container and your DNS servers
 - Run `docker logs netrecon-dns-proxy` for connectivity test results
 
-**Stats page permission error**
-- The `./data` directory needs to exist before starting: `mkdir -p ./data`
-- If issues persist, check: `docker logs netrecon-dns-proxy`
+**Settings or stats will not save**
+- The container fixes the ownership of its data folder by itself when it starts. If you still see permission errors in `docker logs netrecon-dns-proxy`, the data folder is probably on a network share that refuses ownership changes. NetRecon then runs as root so saving keeps working, and logs a message saying so.
+- Using a named volume (as in the example files) avoids the problem.
+
+**Everyone is locked out of sign-in, or one person's wrong passwords lock out everyone**
+- A proxy or load balancer is probably in front of NetRecon and its address is not trusted, so NetRecon sees every visitor as the proxy. Sign in and check **Settings → Security → Your Connection**, then see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Lockouts also clear by themselves after 15 minutes, or immediately with `docker compose restart dns-proxy`.
 
 **Port conflict**
 - Change `8085:80` in `docker-compose.yml` to any available port

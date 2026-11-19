@@ -12,7 +12,7 @@
 'use strict';
 
 /**
- * Called by admin-auth.js after a successful login or session restore.
+ * Called by admin-auth.js after a successful login or a validated session restore.
  * Navigates to the Dashboard and starts the auto-refresh loop.
  */
 function initAdmin() {
@@ -23,12 +23,5 @@ function initAdmin() {
   // Settings and Watched pages refresh on demand when navigated to
 }
 
-// ── Auto-init if already authenticated ───────────────────────────
-// If the session was restored (page reload while logged in),
-// admin-auth.js has already hidden the overlay — init immediately.
-(function autoInit() {
-  if (sessionStorage.getItem('nr-admin-hash')) {
-    // Small delay to ensure all script modules have loaded
-    setTimeout(initAdmin, 50);
-  }
-})();
+// A saved session is checked with the server and initialised by admin-auth.js
+// (restoreAdminSession), so there is nothing to auto-start here.

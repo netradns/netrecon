@@ -9,7 +9,9 @@
 //         id:          string,   // hex timestamp ID
 //         domain:      string,   // e.g. "example.com"
 //         source:      string,   // "public" | "internal"
-//         recordTypes: string[], // ["A", "MX", "TXT"] or ["ALL"]
+//         recordTypes: string[], // ["A", "MX", "TXT"] or ["ALL"]. Empty = certificate-only watch.
+//         cert:        object|null, // { enabled, port, warnDays[] } when the TLS certificate is watched
+//         certStatus:  string,   // "ok" | "expiring" | "expired" | "error" | "pending"
 //         interval:    number,   // poll interval in minutes
 //         addedAt:     number,   // unix ms timestamp
 //         lastChecked: number|null,
@@ -23,12 +25,17 @@
 //         records: Array,       // the full record set at that time
 //       }
 //     },
+//     certs: {
+//       "<id>": { ... }       // latest certificate state, see cert.js evaluateCert()
+//     },
 //     changeLog: [
 //       {
 //         watchId:   string,    // domain entry ID
 //         domain:    string,
 //         ts:        number,
-//         changes:   Array,     // output of diff.js
+//         changes:   Array,     // output of diff.js (empty for certificate entries)
+//         kind:      "cert",   // only on certificate events
+//         certEvents: Array,    // [{ type, message }] only on certificate events
 //       }
 //     ]
 //   }
@@ -46,7 +53,7 @@ let _cache = null;
 
 // ── Default structure ─────────────────────────────────────────────
 function defaultWatched() {
-  return { domains: [], snapshots: {}, changeLog: [] };
+  return { domains: [], snapshots: {}, certs: {}, changeLog: [] };
 }
 
 // ── Load ──────────────────────────────────────────────────────────
@@ -54,7 +61,7 @@ function defaultWatched() {
  * Returns the current watched domains state.
  * Reads from disk on first call, returns the in-memory cache thereafter.
  *
- * @returns {{ domains: Array, snapshots: Object, changeLog: Array }}
+ * @returns {{ domains: Array, snapshots: Object, certs: Object, changeLog: Array }}
  */
 function getWatched() {
   if (_cache) return _cache;
@@ -65,6 +72,7 @@ function getWatched() {
     // Ensure all expected top-level keys exist (handles schema upgrades)
     if (!_cache.domains)   _cache.domains   = [];
     if (!_cache.snapshots) _cache.snapshots = {};
+    if (!_cache.certs)     _cache.certs     = {};
     if (!_cache.changeLog) _cache.changeLog = [];
   } catch {
     _cache = defaultWatched();

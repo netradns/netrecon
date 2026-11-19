@@ -1,0 +1,58 @@
+# NetRecon with automatic HTTPS (Caddy)
+#
+# The easiest way to get a real HTTPS address. Caddy fetches and renews the
+# certificate for you. You need:
+#   - a domain name whose DNS points at this server
+#   - ports 80 and 443 reachable from the internet
+#
+# Change netrecon.example.com below to your domain, then:
+#   docker compose -f docker-compose.caddy.example.yml up -d
+#   Open https://netrecon.example.com and complete the setup wizard
+#
+# The visitor's real IP is picked up automatically (Caddy adds X-Forwarded-For and
+# NetRecon trusts proxies on private Docker addresses).
+services:
+  caddy:
+    image: caddy:2
+    container_name: netrecon-caddy
+    restart: unless-stopped
+    command: caddy reverse-proxy --from netrecon.example.com --to netrecon:80
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy-data:/data      # certificates are kept here
+      - caddy-config:/config
+    networks:
+      - netrecon-internal
+    depends_on:
+      - netrecon
+
+  netrecon:
+    image: ghcr.io/netradns/netrecon:latest
+    container_name: netrecon
+    restart: unless-stopped
+    networks:
+      - netrecon-internal     # no published port: only Caddy can reach it
+    depends_on:
+      - dns-proxy
+
+  dns-proxy:
+    image: ghcr.io/netradns/netrecon-dns-proxy:latest
+    container_name: netrecon-dns-proxy
+    restart: unless-stopped
+    volumes:
+      - netrecon-data:/data
+    networks:
+      - netrecon-internal
+    expose:
+      - "3053"
+
+volumes:
+  netrecon-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  netrecon-internal:
+    driver: bridge

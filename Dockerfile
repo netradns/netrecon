@@ -7,6 +7,8 @@
 #   - CSP, X-Frame-Options, X-Content-Type-Options headers set
 #   - Rate limiting on all /api/* endpoints
 #   - dns-proxy is NOT exposed to the host — internal network only
+#   - Real visitor IP is read from X-Forwarded-For only when the connection comes from a
+#     trusted proxy (private networks by default, extend with TRUSTED_PROXIES)
 
 FROM nginx:1.28-alpine
 
@@ -23,6 +25,13 @@ RUN chmod -R 755 /usr/share/nginx/html
 
 # Replace the full nginx config with our hardened version
 COPY nginx.conf /etc/nginx/nginx.conf
+
+# Works out the visitor's real IP address behind a proxy or load balancer.
+# The nginx image runs everything in /docker-entrypoint.d/ at start. It is also run once
+# here so a valid default file exists even if the entrypoint is replaced.
+COPY docker/nginx/40-netrecon-realip.sh /docker-entrypoint.d/40-netrecon-realip.sh
+RUN chmod +x /docker-entrypoint.d/40-netrecon-realip.sh \
+    && /docker-entrypoint.d/40-netrecon-realip.sh
 
 EXPOSE 80
 

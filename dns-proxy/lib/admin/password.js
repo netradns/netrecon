@@ -1,92 +1,180 @@
 // ── NetRecon — Admin Password Management ─────────────────────────
-// Handles password hashing and verification for the admin login gate.
+// Hashing, verification and changing of the admin password.
 //
 // Design:
-//   - Passwords are stored as SHA-256 hashes only. Plaintext never
-//     persists anywhere — not in logs, not in config files.
-//   - The initial password comes from the STATS_PASSWORD env var
-//     (hashed at startup in this file as ENV_PASSWORD_HASH).
-//   - Once changed via the UI, the new hash is written to config.json
-//     and takes precedence over the env var hash on every login check.
-//   - This means you can change the password without restarting the
-//     container or editing docker-compose.yml.
+//   - The server checks the password. The browser sends it once at login
+//     and never receives any password hash. (Earlier versions served the
+//     hash to every visitor, so it was also the key to the admin API.)
+//   - Passwords are stored as salted scrypt hashes (built into Node, no
+//     dependencies). Plaintext is never written to disk or logs.
+//   - Works over plain HTTP, so people who reach NetRecon by IP address
+//     without a certificate can still log in. Use HTTPS when you can.
 //
-// Why SHA-256 and not bcrypt?
-//   This is an internal self-hosted tool, not a public-facing auth system.
-//   SHA-256 is fast, has no dependencies, and is sufficient for this
-//   threat model. The hash is never transmitted — comparison happens
-//   client-side (browser Web Crypto) against the hash served by /app-config.
+// Where the password can come from, checked in this order:
+//   1. config.adminPassword      scrypt hash set by the setup wizard or the UI
+//   2. config.statsPasswordHash  legacy unsalted SHA-256 from older versions.
+//                                Upgraded to scrypt on the next successful login.
+//   3. STATS_PASSWORD env var    initial password (default "admin")
+//
+// Anything in 1 or 2 takes precedence over the env var, so the password can
+// be changed from the UI without editing docker-compose.yml.
 
 'use strict';
 
 const crypto = require('crypto');
+const { promisify } = require('util');
 const { getConfig, saveConfig } = require('./config-store');
 const { STATS_PASSWORD } = require('../config');
 
-// ── Hash helper ───────────────────────────────────────────────────
+const scrypt = promisify(crypto.scrypt);
+
+// scrypt cost: N=16384, r=8, p=1 uses about 16 MB per hash
+const SCRYPT_N = 16384;
+const SCRYPT_R = 8;
+const SCRYPT_P = 1;
+const KEY_LEN  = 32;
+
+const MIN_PASSWORD_LENGTH = 8;
+const MAX_PASSWORD_LENGTH = 256;
+
+// ── Hashing ───────────────────────────────────────────────────────
+
 /**
- * Returns the SHA-256 hex digest of a string.
- * Used for both hashing new passwords and verifying submitted ones.
- *
- * @param {string} plaintext
- * @returns {string} 64-character hex string
+ * Hash a password with a fresh random salt.
+ * @param {string} plain
+ * @returns {Promise<string>} "scrypt$N$r$p$salt$hash" (salt and hash base64)
  */
-function hashPassword(plaintext) {
-  return crypto.createHash('sha256').update(String(plaintext)).digest('hex');
+async function hashPassword(plain) {
+  const salt = crypto.randomBytes(16);
+  const hash = await scrypt(String(plain), salt, KEY_LEN, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P });
+  return ['scrypt', SCRYPT_N, SCRYPT_R, SCRYPT_P, salt.toString('base64'), hash.toString('base64')].join('$');
 }
 
-// ── Env var hash (computed once at startup) ───────────────────────
-// Pre-computed so we don't re-hash on every login attempt.
-const ENV_PASSWORD_HASH = hashPassword(STATS_PASSWORD);
-
-// ── Get the active password hash ─────────────────────────────────
 /**
- * Returns the currently active password hash.
- * Prefers the hash stored in config.json (set via UI) over the
- * env var hash (set via docker-compose.yml).
+ * Check a password against a stored scrypt string.
+ * Parameters come from the stored string, so the cost can be raised later
+ * without breaking existing hashes.
  *
- * This allows password changes to take effect immediately without
- * a container restart.
- *
- * @returns {string} SHA-256 hex hash of the current password
+ * @param {string} plain
+ * @param {string} stored
+ * @returns {Promise<boolean>}
  */
-function getActiveHash() {
+async function verifyScrypt(plain, stored) {
+  const parts = String(stored).split('$');
+  if (parts.length !== 6 || parts[0] !== 'scrypt') return false;
+
+  const N = parseInt(parts[1], 10), r = parseInt(parts[2], 10), p = parseInt(parts[3], 10);
+  if (!(N > 1 && r > 0 && p > 0)) return false;
+
+  const salt     = Buffer.from(parts[4], 'base64');
+  const expected = Buffer.from(parts[5], 'base64');
+  if (!salt.length || !expected.length) return false;
+
+  const actual = await scrypt(String(plain), salt, expected.length, { N, r, p });
+  return crypto.timingSafeEqual(actual, expected);
+}
+
+/** SHA-256 hex digest. Only used to read legacy hashes and to compare strings. */
+function sha256Hex(str) {
+  return crypto.createHash('sha256').update(String(str)).digest('hex');
+}
+
+/** Constant-time string comparison (digests are always the same length). */
+function safeEqual(a, b) {
+  return crypto.timingSafeEqual(
+    crypto.createHash('sha256').update(String(a)).digest(),
+    crypto.createHash('sha256').update(String(b)).digest()
+  );
+}
+
+// ── Verification ──────────────────────────────────────────────────
+
+/**
+ * Check a submitted password against whichever source is active.
+ * A correct password that matched a legacy SHA-256 hash is re-saved as scrypt.
+ *
+ * @param {string} plain
+ * @returns {Promise<boolean>}
+ */
+async function verifyPassword(plain) {
+  if (typeof plain !== 'string' || plain.length === 0 || plain.length > MAX_PASSWORD_LENGTH) return false;
+
   const cfg = getConfig();
-  // If a hash has been set via the UI, use it; otherwise fall back to env var
-  return cfg.statsPasswordHash || ENV_PASSWORD_HASH;
+
+  if (cfg.adminPassword) {
+    return verifyScrypt(plain, cfg.adminPassword);
+  }
+
+  if (cfg.statsPasswordHash) {
+    const ok = safeEqual(sha256Hex(plain), String(cfg.statsPasswordHash).toLowerCase());
+    if (ok) {
+      await setPassword(plain);          // upgrade to scrypt; the legacy hash is dropped
+      console.log('[INFO] Admin password upgraded to a salted hash');
+    }
+    return ok;
+  }
+
+  return safeEqual(plain, STATS_PASSWORD);
 }
 
-// ── Change password ───────────────────────────────────────────────
 /**
- * Validates the current password and sets a new one.
- * Returns { ok: true } on success or { ok: false, error: string } on failure.
- *
- * @param {string} currentHash - SHA-256 hash of the current password
- *                               (submitted by the browser, never plaintext)
- * @param {string} newHash     - SHA-256 hash of the new password
- * @returns {{ ok: boolean, error?: string }}
+ * True while the password is still the built-in default ("admin") and has
+ * never been changed. The admin UI uses this to show a reminder.
  */
-function changePassword(currentHash, newHash) {
-  // Validate inputs — both must be 64-char hex strings
-  const hexRe = /^[0-9a-f]{64}$/i;
-  if (!hexRe.test(currentHash)) return { ok: false, error: 'Invalid current password format' };
-  if (!hexRe.test(newHash))     return { ok: false, error: 'Invalid new password format' };
+function isUsingDefaultPassword() {
+  const cfg = getConfig();
+  return !cfg.adminPassword && !cfg.statsPasswordHash && STATS_PASSWORD === 'admin';
+}
 
-  // Verify the current password matches
-  if (currentHash !== getActiveHash()) {
-    return { ok: false, error: 'Current password is incorrect' };
+// ── Changing the password ─────────────────────────────────────────
+
+/**
+ * Returns an error message if the password is not acceptable, otherwise null.
+ * @param {string} pw
+ */
+function validateNewPassword(pw) {
+  if (typeof pw !== 'string' || pw.length < MIN_PASSWORD_LENGTH) {
+    return `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
   }
+  if (pw.length > MAX_PASSWORD_LENGTH) return `Password must be at most ${MAX_PASSWORD_LENGTH} characters`;
+  return null;
+}
 
-  // Prevent setting the same password again
-  if (newHash === getActiveHash()) {
-    return { ok: false, error: 'New password must be different from the current password' };
-  }
+/**
+ * Store a new password as a salted scrypt hash.
+ * Clears the legacy hash so only one source remains.
+ * @param {string} plain
+ */
+async function setPassword(plain) {
+  saveConfig({ adminPassword: await hashPassword(plain), statsPasswordHash: null });
+}
 
-  // Persist the new hash — this takes effect immediately for all future logins
-  saveConfig({ statsPasswordHash: newHash });
+/**
+ * Verify the current password and set a new one.
+ *
+ * @param {string} current
+ * @param {string} next
+ * @returns {Promise<{ ok: boolean, error?: string }>}
+ */
+async function changePassword(current, next) {
+  if (!(await verifyPassword(current))) return { ok: false, error: 'Current password is incorrect' };
+
+  if (next === current) return { ok: false, error: 'New password must be different from the current password' };
+
+  const problem = validateNewPassword(next);
+  if (problem) return { ok: false, error: problem };
+
+  await setPassword(next);
   console.log('[INFO] Admin password changed via UI');
-
   return { ok: true };
 }
 
-module.exports = { hashPassword, getActiveHash, changePassword, ENV_PASSWORD_HASH };
+module.exports = {
+  MIN_PASSWORD_LENGTH,
+  hashPassword,
+  verifyPassword,
+  isUsingDefaultPassword,
+  validateNewPassword,
+  setPassword,
+  changePassword,
+};

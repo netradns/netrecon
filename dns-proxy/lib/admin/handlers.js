@@ -2,18 +2,21 @@
 // HTTP route handlers for all /admin/* endpoints.
 //
 // Routes registered in server.js:
-//   GET  /admin/config          — returns runtime config (sanitized)
-//   PUT  /admin/config          — updates runtime config
-//   POST /admin/password        — changes the admin password
-//   GET  /admin/notify-log      — returns notification delivery log
-//   POST /admin/notify/test     — sends a test notification to one channel
-//   GET  /admin/watched         — returns watched domains list
-//   POST /admin/watched         — adds a watched domain
-//   DELETE /admin/watched/:id   — removes a watched domain
+//   POST /admin/login           - checks the password, returns a session token (public)
+//   POST /admin/logout          - ends the session
+//   GET  /admin/session         - confirms the token is still valid
+//   GET  /admin/config          - returns runtime config (sanitized)
+//   PUT  /admin/config          - updates runtime config
+//   POST /admin/password        - changes the admin password
+//   GET  /admin/notify-log      - returns notification delivery log
+//   POST /admin/notify/test     - sends a test notification to one channel
+//   GET  /admin/watched         - returns watched domains list
+//   POST /admin/watched         - adds a watched domain
+//   POST /admin/watched/:id/check - checks one entry right now
+//   DELETE /admin/watched/:id   - removes a watched domain
 //
-// Auth: all routes require the X-Admin-Hash header to match the
-// active password hash. This is the same hash the browser computes
-// client-side during login — it's checked on every mutating request.
+// Auth: every route except /admin/login requires a session token sent as
+// "Authorization: Bearer <token>". See session.js.
 //
 // Adding a new admin route:
 //   1. Add a handler function here
@@ -22,38 +25,19 @@
 
 'use strict';
 
-const crypto = require('crypto');
 const { getConfig, saveConfig }    = require('./config-store');
-const { getActiveHash, changePassword } = require('./password');
+const { verifyPassword, changePassword, isUsingDefaultPassword } = require('./password');
+const session                      = require('./session');
 const { getLog }                   = require('../notify/log');
 const { dispatch }                 = require('../notify/dispatcher');
 const { getWatched, saveWatched }  = require('../watcher/snapshot');
+const { normalizeWarnDays, normalizePort } = require('../watcher/cert');
+const watcher                     = require('../watcher');
+const { parseIPv4, isPrivateAddress } = require('../net-guard');
 const { jsonSafe }                 = require('../handlers');
 
-// ── Auth middleware ───────────────────────────────────────────────
-/**
- * Checks the X-Admin-Hash request header against the active password hash.
- * Uses timing-safe comparison to prevent side-channel attacks.
- * Returns true if authorized, false if not (and sends a 401 response).
- */
-function requireAuth(req, res) {
-  const submitted = (req.headers['x-admin-hash'] || '').trim().toLowerCase();
-  const active    = getActiveHash().toLowerCase();
-
-  // Length check first — timingSafeEqual requires equal-length buffers
-  if (!submitted || submitted.length !== active.length) {
-    jsonSafe(res, 401, { error: 'Unauthorized' });
-    return false;
-  }
-
-  const match = crypto.timingSafeEqual(Buffer.from(submitted), Buffer.from(active));
-  if (!match) {
-    jsonSafe(res, 401, { error: 'Unauthorized' });
-    return false;
-  }
-  return true;
-}
-
+// Session guard shared by every admin route. See session.js.
+const requireAuth = session.requireAuth;
 // ── Read body helper ──────────────────────────────────────────────
 // Reused from the main handlers pattern — reads the request body as JSON.
 function readBody(req) {
@@ -70,11 +54,75 @@ function readBody(req) {
   });
 }
 
+// ── POST /admin/login ─────────────────────────────────────────────
+/**
+ * Checks the password and starts a session.
+ * Body: { username: "admin", password: string }
+ * Returns: { ok, token, expiresInSec, usingDefault, clientIp }
+ *
+ * Public route, so it is throttled per IP (see session.js). Wrong attempts
+ * are also slowed by a short delay.
+ */
+async function handleLogin(req, res) {
+  const ip   = session.clientIp(req);
+  const gate = session.checkLogin(ip);
+  if (!gate.allowed) {
+    res.setHeader('Retry-After', String(gate.retryAfterSec));
+    return jsonSafe(res, 429, {
+      error: `Too many failed attempts. Try again in ${Math.ceil(gate.retryAfterSec / 60)} minute(s).`,
+    });
+  }
+
+  let body;
+  try { body = JSON.parse(await readBody(req)); }
+  catch { return jsonSafe(res, 400, { error: 'Invalid JSON body' }); }
+
+  // Check the password first so a wrong username takes as long as a wrong password
+  const passwordOk = await verifyPassword(typeof body.password === 'string' ? body.password : '');
+  const ok         = passwordOk && body.username === 'admin';
+
+  if (!ok) {
+    session.recordFailure(ip);
+    await new Promise(r => setTimeout(r, 300));
+    console.warn(`[WARN] Failed admin login from ${ip}`);
+    return jsonSafe(res, 401, { error: 'Incorrect username or password' });
+  }
+
+  session.recordSuccess(ip);
+  return jsonSafe(res, 200, {
+    ok:           true,
+    token:        session.createSession(),
+    expiresInSec: session.SESSION_IDLE_MS / 1000,
+    usingDefault: isUsingDefaultPassword(),
+    clientIp:     ip,
+  });
+}
+
+// ── POST /admin/logout ────────────────────────────────────────────
+/** Ends the caller's session. Always succeeds. */
+function handleLogout(req, res) {
+  session.revokeSession(session.getToken(req));
+  return jsonSafe(res, 200, { ok: true });
+}
+
+// ── GET /admin/session ────────────────────────────────────────────
+/**
+ * Tells the browser whether its saved token still works (it stops working
+ * after a restart or a long idle time). Also reports whether the default
+ * password is still in use, so the UI can remind the admin to change it, and the
+ * address the server sees for this visitor, which shows whether a proxy or load
+ * balancer in front of NetRecon is set up correctly.
+ */
+function handleSession(req, res) {
+  if (!requireAuth(req, res)) return;
+  return jsonSafe(res, 200, { ok: true, usingDefault: isUsingDefaultPassword(), clientIp: session.clientIp(req) });
+}
+
 // ── GET /admin/config ─────────────────────────────────────────────
 /**
  * Returns the current runtime config.
  * SMTP password is redacted — never sent to the browser.
- * statsPasswordHash is omitted — the browser already has it from /app-config.
+ * No password hash is ever included.
  */
 function handleGetConfig(req, res) {
   if (!requireAuth(req, res)) return;
@@ -172,8 +220,10 @@ async function handlePutConfig(req, res) {
 // ── POST /admin/password ──────────────────────────────────────────
 /**
  * Changes the admin password.
- * Body: { currentHash: string, newHash: string }
- * Both values are SHA-256 hashes — plaintext never sent over the wire.
+ * Body: { currentPassword: string, newPassword: string }
+ *
+ * Other sessions are ended, so anyone who had the old password is logged
+ * out. The caller stays logged in.
  */
 async function handleChangePassword(req, res) {
   if (!requireAuth(req, res)) return;
@@ -182,14 +232,14 @@ async function handleChangePassword(req, res) {
   try { body = JSON.parse(await readBody(req)); }
   catch { return jsonSafe(res, 400, { error: 'Invalid JSON body' }); }
 
-  const result = changePassword(
-    String(body.currentHash || ''),
-    String(body.newHash     || '')
+  const result = await changePassword(
+    typeof body.currentPassword === 'string' ? body.currentPassword : '',
+    typeof body.newPassword     === 'string' ? body.newPassword     : ''
   );
 
+  if (result.ok) session.revokeOtherSessions(session.getToken(req));
   return jsonSafe(res, result.ok ? 200 : 400, result);
 }
-
 // ── GET /admin/notify-log ─────────────────────────────────────────
 /**
  * Returns the notification delivery log (last 200 attempts).
@@ -248,12 +298,16 @@ function handleGetWatched(req, res) {
 
 // ── POST /admin/watched ───────────────────────────────────────────
 /**
- * Adds a new domain to the watch list.
- * Body: { domain, source, recordTypes, interval }
- *   domain:      string  — domain name to watch (e.g. "example.com")
- *   source:      string  — "public" or "internal"
- *   recordTypes: Array   — e.g. ["A", "MX", "TXT"] or ["ALL"]
- *   interval:    number  — poll interval in minutes (5, 15, 60, 360, 1440)
+ * Adds a new entry to the watch list.
+ * Body: { domain, source, recordTypes, interval, cert? }
+ *   domain:      string  - domain name or IPv4 address (e.g. "example.com", "10.0.0.5")
+ *   source:      string  - "public" or "internal"
+ *   recordTypes: Array   - e.g. ["A", "MX", "TXT"] or ["ALL"]. May be empty when cert is set.
+ *   interval:    number  - poll interval in minutes (5, 15, 60, 360, 1440)
+ *   cert:        object  - optional { enabled, port, warnDays } to watch the TLS certificate
+ *
+ * Entries can watch DNS records, a certificate, or both. An IP address has no
+ * DNS records to watch, so it must be a certificate watch.
  */
 async function handleAddWatched(req, res) {
   if (!requireAuth(req, res)) return;
@@ -270,10 +324,35 @@ async function handleAddWatched(req, res) {
   const VALID_SOURCES = new Set(['public', 'internal']);
   const source = VALID_SOURCES.has(body.source) ? body.source : 'public';
 
+  // Certificate watch (optional)
+  let cert = null;
+  if (body.cert && body.cert.enabled) {
+    const port = normalizePort(body.cert.port);
+    if (port === null) return jsonSafe(res, 400, { error: 'Invalid port. Use a number from 1 to 65535.' });
+    cert = { enabled: true, port, warnDays: normalizeWarnDays(body.cert.warnDays) };
+  }
+
   const VALID_TYPES = new Set(['A','AAAA','MX','TXT','NS','CNAME','SOA','CAA','SRV','ALL']);
-  const recordTypes = Array.isArray(body.recordTypes)
-    ? body.recordTypes.filter(t => VALID_TYPES.has(String(t).toUpperCase())).map(t => t.toUpperCase())
-    : ['A', 'MX', 'TXT', 'NS'];
+  let recordTypes = Array.isArray(body.recordTypes)
+    ? body.recordTypes.filter(t => VALID_TYPES.has(String(t).toUpperCase())).map(t => String(t).toUpperCase())
+    : (cert ? [] : ['A', 'MX', 'TXT', 'NS']);
+
+  // An IP address is not a DNS name: watch its certificate only
+  const isIp = !!parseIPv4(domain);
+  if (!isIp && /^\d+(\.\d+){0,3}$/.test(domain)) {
+    return jsonSafe(res, 400, { error: 'That looks like an IP address but is not valid. Use four numbers from 0 to 255, like 10.0.0.5.' });
+  }
+  if (isIp) {
+    if (!cert) return jsonSafe(res, 400, { error: 'An IP address has no DNS records to watch. Turn on certificate monitoring instead.' });
+    recordTypes = [];
+    if (source === 'public' && isPrivateAddress(domain)) {
+      return jsonSafe(res, 400, { error: 'That is a private address. Choose the Internal source to watch it.' });
+    }
+  }
+
+  if (!recordTypes.length && !cert) {
+    return jsonSafe(res, 400, { error: 'Choose at least one record type, or turn on certificate monitoring.' });
+  }
 
   // Allowed poll intervals in minutes
   const VALID_INTERVALS = new Set([5, 15, 60, 360, 1440]);
@@ -281,9 +360,13 @@ async function handleAddWatched(req, res) {
 
   const watched = getWatched();
 
-  // Prevent duplicate entries for the same domain + source combination
-  const exists = watched.domains.some(d => d.domain === domain && d.source === source);
-  if (exists) {
+  // Reject duplicates: the same host and source may not watch DNS twice,
+  // or watch the same certificate port twice.
+  const clash = watched.domains.find(d => d.domain === domain && d.source === source && (
+    ((d.recordTypes || []).length > 0 && recordTypes.length > 0) ||
+    (d.cert && cert && d.cert.port === cert.port)
+  ));
+  if (clash) {
     return jsonSafe(res, 409, { error: `Already watching ${domain} (${source})` });
   }
 
@@ -292,17 +375,37 @@ async function handleAddWatched(req, res) {
     domain,
     source,
     recordTypes,
+    cert,
     interval,
     addedAt:     Date.now(),
     lastChecked: null,
     lastChanged: null,
     status:      'pending', // pending | stable | changed | error
+    certStatus:  cert ? 'pending' : null,
   };
 
   watched.domains.push(entry);
   saveWatched(watched);
 
+  // First check right away, so the admin sees a result without waiting for the next tick
+  watcher.checkNow(entry).catch(err => console.error(`[watcher] First check failed for ${domain}: ${err.message}`));
+
   return jsonSafe(res, 201, { ok: true, entry });
+}
+// ── POST /admin/watched/:id/check ─────────────────────────────────
+/**
+ * Runs the checks for one entry immediately (the "Check now" button).
+ * Waits for the result and returns the refreshed entry and certificate state.
+ */
+async function handleCheckWatched(req, res, id) {
+  if (!requireAuth(req, res)) return;
+
+  const watched = getWatched();
+  const entry   = watched.domains.find(d => d.id === id);
+  if (!entry) return jsonSafe(res, 404, { error: 'Watched domain not found' });
+
+  await watcher.checkNow(entry);
+  return jsonSafe(res, 200, { ok: true, entry, cert: (watched.certs || {})[id] || null });
 }
 
 // ── DELETE /admin/watched/:id ─────────────────────────────────────
@@ -327,6 +430,7 @@ function handleRemoveWatched(req, res, id) {
 
   // Clean up associated snapshot and change log
   delete watched.snapshots[id];
+  if (watched.certs) delete watched.certs[id];
   watched.changeLog = (watched.changeLog || []).filter(e => e.watchId !== id);
 
   saveWatched(watched);
@@ -335,6 +439,9 @@ function handleRemoveWatched(req, res, id) {
 
 module.exports = {
   requireAuth,
+  handleLogin,
+  handleLogout,
+  handleSession,
   handleGetConfig,
   handlePutConfig,
   handleChangePassword,
@@ -342,5 +449,6 @@ module.exports = {
   handleTestNotify,
   handleGetWatched,
   handleAddWatched,
+  handleCheckWatched,
   handleRemoveWatched,
 };

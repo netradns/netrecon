@@ -21,7 +21,7 @@ function ago(ts) {
 // ── Server-side stats fetch ───────────────────────────────────
 async function fetchServerStats() {
   try {
-    const r = await fetch('/api/internal-dns/stats', { cache: 'no-store' });
+    const r = await adminFetch('/api/internal-dns/stats', { cache: 'no-store' });
     if (r.ok) _serverStats = await r.json();
   } catch {}
 }
@@ -55,16 +55,16 @@ async function refreshAll() {
   // Only auto-init if we're NOT on admin.html (which has its own init flow).
   // admin.html has #adminPageContainer; stats-only pages don't.
   const isAdminPage = !!document.getElementById('adminPageContainer');
-  if (!isAdminPage && sessionStorage.getItem('nr-stats-auth') === '1') {
+  if (!isAdminPage && isAdminLoggedIn()) {
     refreshAll();
   }
 })();
 
 // Auto-refresh every 15s; relative timestamps every 30s
 setInterval(function () {
-  if (sessionStorage.getItem('nr-stats-auth') === '1') refreshAll();
+  if (isAdminLoggedIn()) refreshAll();
 }, 15000);
 
 setInterval(function () {
-  if (sessionStorage.getItem('nr-stats-auth') === '1') renderRecent();
+  if (isAdminLoggedIn()) renderRecent();
 }, 30000);

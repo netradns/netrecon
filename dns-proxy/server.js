@@ -41,6 +41,9 @@ const {
 
 // Admin route handlers — settings, password, notify, watched domains
 const {
+  handleLogin,
+  handleLogout,
+  handleSession,
   handleGetConfig,
   handlePutConfig,
   handleChangePassword,
@@ -48,8 +51,12 @@ const {
   handleTestNotify,
   handleGetWatched,
   handleAddWatched,
+  handleCheckWatched,
   handleRemoveWatched,
 } = require('./lib/admin/handlers');
+
+// Session guard for routes outside /admin that must not be public (stats)
+const { requireAuth } = require('./lib/admin/session');
 
 // Setup wizard handlers (first-run only)
 const { handleSetupStatus, handleSetup } = require('./lib/admin/setup');
@@ -125,14 +132,18 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/geo'              && method === 'GET') return handleGeo(req, res, query);
     if (pathname === '/resolve'          && method === 'GET') return handleResolve(req, res, query);
     if (pathname === '/resolve-all'      && method === 'GET') return handleResolveAll(req, res, query);
-    if (pathname === '/stats'            && method === 'GET') return handleStatsGet(req, res);
+    // Stats hold recent lookups (internal hostnames, calculator input), so reading or clearing them needs a login
+    if (pathname === '/stats'            && method === 'GET') { if (!requireAuth(req, res)) return; return handleStatsGet(req, res); }
     if (pathname === '/stats/log'        && method === 'POST') return handleStatsLog(req, res);
-    if (pathname === '/stats/clear'      && method === 'POST') return handleStatsClear(req, res);
+    if (pathname === '/stats/clear'      && method === 'POST') { if (!requireAuth(req, res)) return; return handleStatsClear(req, res); }
     if (pathname === '/blacklist'        && method === 'GET')  return handleBlacklist(req, res, query);
     if (pathname === '/tls-check'        && method === 'GET')  return handleTlsCheck(req, res, query);
 
     // ── Admin routes ─────────────────────────────────────────────
-    // All /admin/* routes require X-Admin-Hash header (checked inside each handler).
+    // All /admin/* routes except login require a session token (checked inside each handler).
+    if (pathname === '/admin/login'        && method === 'POST')   return handleLogin(req, res);
+    if (pathname === '/admin/logout'       && method === 'POST')   return handleLogout(req, res);
+    if (pathname === '/admin/session'      && method === 'GET')    return handleSession(req, res);
     if (pathname === '/admin/config'       && method === 'GET')    return handleGetConfig(req, res);
     if (pathname === '/admin/config'       && method === 'PUT')    return handlePutConfig(req, res);
     if (pathname === '/admin/password'     && method === 'POST')   return handleChangePassword(req, res);
@@ -142,6 +153,10 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/admin/watched'      && method === 'POST')   return handleAddWatched(req, res);
     if (pathname === '/admin/server-settings' && method === 'GET') return handleGetServerSettings(req, res);
     if (pathname === '/admin/server-settings' && method === 'PUT') return handlePutServerSettings(req, res, readBody, reconfigure);
+
+    // POST /admin/watched/:id/check — run one entry's checks now
+    const checkMatch = /^\/admin\/watched\/([A-Za-z0-9]+)\/check$/.exec(pathname);
+    if (checkMatch && method === 'POST') return handleCheckWatched(req, res, checkMatch[1]);
 
     // DELETE /admin/watched/:id — extract the ID from the path
     if (pathname.startsWith('/admin/watched/') && method === 'DELETE') {
@@ -172,9 +187,8 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`[INFO] Public DNS: Cloudflare DoH (1.1.1.1) — configured servers: ${PUBLIC_DNS.join(', ')}`);
 
   // Warn if using the default password — easy to miss in production
-  const { STATS_PASSWORD } = require('./lib/config');
-  if (STATS_PASSWORD === 'admin') {
-    console.warn('[WARN] Using default admin password "admin" — change STATS_PASSWORD in docker-compose.yml or via the admin UI');
+  if (require('./lib/admin/password').isUsingDefaultPassword()) {
+    console.warn('[WARN] Using the default admin password "admin" — set a new one in the setup wizard or Settings → Security');
   }
 });
 

@@ -1,0 +1,55 @@
+# NetRecon behind Traefik
+#
+# Use this when you already run Traefik in Docker. Traefik handles the domain name and
+# HTTPS certificate. NetRecon needs no published ports.
+#
+# Before you start, change these three things:
+#   1. netrecon.example.com      your domain name (its DNS must point at Traefik)
+#   2. traefik                   the name of the Docker network Traefik is attached to
+#                                (find it with: docker network ls)
+#   3. websecure / letsencrypt   your Traefik entrypoint and certificate resolver names
+#
+# Then:  docker compose -f docker-compose.traefik.example.yml up -d
+#
+# The visitor's real IP is picked up automatically: Traefik adds it to X-Forwarded-For
+# and NetRecon trusts proxies on private Docker addresses. If Traefik itself sits behind
+# another proxy (such as Cloudflare), list that proxy under Traefik's
+# forwardedHeaders.trustedIPs setting so Traefik passes the real address along.
+services:
+  netrecon:
+    image: ghcr.io/netradns/netrecon:latest
+    container_name: netrecon
+    restart: unless-stopped
+    networks:
+      - traefik               # shared with Traefik
+      - netrecon-internal     # shared with the dns-proxy
+    depends_on:
+      - dns-proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik
+      - traefik.http.routers.netrecon.rule=Host(`netrecon.example.com`)
+      - traefik.http.routers.netrecon.entrypoints=websecure
+      - traefik.http.routers.netrecon.tls=true
+      - traefik.http.routers.netrecon.tls.certresolver=letsencrypt
+      - traefik.http.services.netrecon.loadbalancer.server.port=80
+
+  dns-proxy:
+    image: ghcr.io/netradns/netrecon-dns-proxy:latest
+    container_name: netrecon-dns-proxy
+    restart: unless-stopped
+    volumes:
+      - netrecon-data:/data
+    networks:
+      - netrecon-internal     # never exposed to Traefik or the host
+    expose:
+      - "3053"
+
+volumes:
+  netrecon-data:
+
+networks:
+  traefik:
+    external: true            # the network Traefik already uses
+  netrecon-internal:
+    driver: bridge

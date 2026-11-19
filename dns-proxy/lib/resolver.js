@@ -48,10 +48,14 @@ const DOH_URL = 'https://1.1.1.1/dns-query';
  * @param {string} name   - Domain name to query
  * @param {string} type   - Record type (A, AAAA, MX, TXT, etc.)
  * @param {number} timeout - Request timeout in ms
+ * @param {Object} [flags] - DNSSEC flags: { do: 1 } asks for signatures and the AD
+ *                           (validated) flag, { cd: 1 } turns validation off
  */
-function dohFetch(name, type, timeout) {
+function dohFetch(name, type, timeout, flags) {
   const ms  = timeout || PUBLIC_TIMEOUT;
-  const url = `${DOH_URL}?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`;
+  let url = `${DOH_URL}?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`;
+  if (flags && flags.do) url += '&do=1';
+  if (flags && flags.cd) url += '&cd=1';
 
   return new Promise((resolve, reject) => {
     const req = https.get(url, {
@@ -400,6 +404,7 @@ function reconfigure(opts) {
 }
 
 module.exports = {
+  dohFetch,
   resolveAll,
   resolvePublic,
   resolveInternal,

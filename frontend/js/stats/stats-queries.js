@@ -68,7 +68,7 @@ function renderRecent() {
 
 // ── Clear history ─────────────────────────────────────────────
 async function clearHistory() {
-  try { await fetch('/api/internal-dns/stats/clear', { method: 'POST' }); } catch {}
+  try { await adminFetch('/api/internal-dns/stats/clear', { method: 'POST' }); } catch {}
   _serverStats = { counters: {}, history: [] };
   renderUsage();
   renderTopQueries();

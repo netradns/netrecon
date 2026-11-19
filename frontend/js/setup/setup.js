@@ -59,11 +59,11 @@ function showSetupWizard() {
     '      <div class="setup-section-desc">Set a password for the admin panel. You\'ll use this to access settings, stats, and watched domains.</div>',
     '      <div class="setup-field">',
     '        <label for="setupPassword">Password</label>',
-    '        <input type="password" id="setupPassword" placeholder="Choose a password (min 4 characters)" required minlength="4" autocomplete="new-password">',
+    '        <input type="password" id="setupPassword" placeholder="Choose a password (min 8 characters)" required minlength="8" autocomplete="new-password">',
     '      </div>',
     '      <div class="setup-field">',
     '        <label for="setupPasswordConfirm">Confirm Password</label>',
-    '        <input type="password" id="setupPasswordConfirm" placeholder="Re-enter password" required minlength="4" autocomplete="new-password">',
+    '        <input type="password" id="setupPasswordConfirm" placeholder="Re-enter password" required minlength="8" autocomplete="new-password">',
     '      </div>',
     '    </div>',
     '',
@@ -104,8 +104,8 @@ function showSetupWizard() {
 async function handleSetupSubmit(e) {
   e.preventDefault();
 
-  var password = document.getElementById('setupPassword').value.trim();
-  var confirm  = document.getElementById('setupPasswordConfirm').value.trim();
+  var password = document.getElementById('setupPassword').value;      // not trimmed: it must match what is typed at login
+  var confirm  = document.getElementById('setupPasswordConfirm').value;
   var dns      = document.getElementById('setupDnsServers').value.trim();
   var errorEl  = document.getElementById('setupError');
   var btn      = document.getElementById('setupSubmitBtn');
@@ -114,8 +114,8 @@ async function handleSetupSubmit(e) {
   errorEl.style.display = 'none';
 
   // Validate
-  if (password.length < 4) {
-    showSetupError('Password must be at least 4 characters.');
+  if (password.length < 8) {
+    showSetupError('Password must be at least 8 characters.');
     return;
   }
   if (password !== confirm) {

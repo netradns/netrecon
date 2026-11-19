@@ -1,16 +1,17 @@
-# NetRecon — Docker Compose
+# NetRecon — Docker Compose (simplest setup)
 #
 # Quick start:
-#   mkdir -p ./data
 #   docker compose up -d
-#   Open http://localhost:8085
+#   Open http://localhost:8085 (or http://<this-server's-IP>:8085)
 #   Complete the setup wizard in your browser
 #
-# All configuration is done via the web UI — no environment
-# variables need to be set. The setup wizard runs on first launch.
-
+# No domain, certificate or proxy is needed. All configuration is done in the web UI.
+#
+# Want HTTPS or a domain name? Use one of these instead:
+#   docker-compose.traefik.example.yml   you already run Traefik
+#   docker-compose.caddy.example.yml     automatic HTTPS in one step
+# Using a cloud load balancer (AWS, Google Cloud, Azure)? See docs/DEPLOYMENT.md.
 services:
-
   netrecon:
     image: ghcr.io/netradns/netrecon:latest
     container_name: netrecon
@@ -21,17 +22,25 @@ services:
       - netrecon-internal
     depends_on:
       - dns-proxy
+    # Only needed when a load balancer with a PUBLIC address sits in front, for example
+    # Google Cloud. Proxies on private addresses (Traefik, Caddy, AWS ALB, Azure) work
+    # without it. See docs/DEPLOYMENT.md.
+    # environment:
+    #   TRUSTED_PROXIES: "35.191.0.0/16,130.211.0.0/22"
 
   dns-proxy:
     image: ghcr.io/netradns/netrecon-dns-proxy:latest
     container_name: netrecon-dns-proxy
     restart: unless-stopped
     volumes:
-      - ./data:/data        # Settings, stats, and watched domains persist here
+      - netrecon-data:/data   # Settings, stats and watched domains live here
     networks:
       - netrecon-internal
     expose:
       - "3053"
+
+volumes:
+  netrecon-data:              # A named volume avoids folder-permission problems
 
 networks:
   netrecon-internal:

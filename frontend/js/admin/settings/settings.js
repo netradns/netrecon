@@ -292,7 +292,8 @@ function renderSettingsShell() {
         <div style="font-size:14px;font-weight:600;margin-bottom:4px">Change Admin Password</div>
         <div style="font-size:12px;color:var(--text-3);margin-bottom:16px">
           Takes effect immediately — no container restart required.
-          The new password is stored as a SHA-256 hash in <code>/data/config.json</code>.
+          The new password is stored as a salted hash in <code>/data/config.json</code>, and every other signed-in session is ended.
+          Forgot it? See <em>Forgot the admin password</em> in the README.
         </div>
         <form onsubmit="return changeAdminPassword(event)" style="max-width:360px">
           <div class="field-group" style="margin-bottom:10px">
@@ -312,11 +313,23 @@ function renderSettingsShell() {
           <button class="btn btn-primary btn-sm" type="submit">Change Password</button>
         </form>
       </div>
+
+      <div class="panel" style="margin-top:16px">
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px">Your Connection</div>
+        <div style="font-size:12px;color:var(--text-3);line-height:1.6">
+          NetRecon sees your connection as coming from <code id="connIp" style="font-family:'DM Mono',monospace;background:var(--bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">…</code>.
+          Sign-in lockouts and rate limits are counted per address.
+          If this is the address of a proxy or load balancer in front of NetRecon instead of your own, set <code>TRUSTED_PROXIES</code> on the container so NetRecon can see real visitors. See <em>docs/DEPLOYMENT.md</em>.
+        </div>
+      </div>
     </div>
   `;
 
   // Show the initial guide for the default service
   showNotifyGuideFor('slack');
+
+  // Fill in the address the server sees for this admin (see admin-auth.js)
+  if (typeof setAdminSessionInfo === 'function') setAdminSessionInfo();
 
   // Apply the app's custom select component to any <select class="f-select"> in settings
   if (typeof initAllCustomSelects === 'function') {
