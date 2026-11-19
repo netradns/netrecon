@@ -35,6 +35,7 @@
 - **Clickable IPs** — click any A/AAAA result to instantly run a full IP lookup with map
 - **TLS Certificate check** — subject, issuer, SANs, expiry countdown, cipher, protocol version, full chain display
 - **DNSSEC status** — shows whether a domain is signed and validated, partially configured, failing validation, or simply not signed (the common, harmless case). Includes the signing algorithm, DS records and key roles. Public lookups only.
+- **Domain registration** — registrar, registered date and expiry countdown, read from the registry's public RDAP service. Registry status flags such as "client hold" are shown in red. Some registries (for example .io, .de, .us) offer no RDAP, so the card says so instead of guessing.
 - **DNSBL Blacklist check** — tests IPs against 10 major blacklists (Spamhaus, SpamCop, Barracuda, SORBS, etc.) in parallel
 - **Split-brain safe** — public tool uses Cloudflare DoH exclusively, never leaks internal records
 - **Multi-type parallel resolution** — all record types resolved in one request (~300ms vs sequential ~6s)
@@ -58,6 +59,7 @@
 - **Helpers** — prefix cheat sheet, "subnet for N hosts" finder, click any value to copy
 - **Windows DHCP scope export** — generates PowerShell (`Add-DhcpServerv4Scope` etc.) to run on the DHCP server; gateway and pool are auto-filled
 - **CSV / text export** — subnet details plus every subnet of a chosen size
+- **IPv6 calculator** — enter an address such as `2001:db8::/32` for the first and last address, total size, address type (global, unique local, link-local, documentation...), reverse DNS zone, expanded and compressed forms, a hex view of the network and host parts, and splits and supernets in 4-bit steps. The Subnet Planner, Overlap Check and Summarize tabs are IPv4 only.
 - **Subnet planner (VLSM)** — allocate subnets from a block by host count, largest first, with free-space and DHCP shortcuts
 - **Overlap checker** — finds duplicate and nested subnets in a pasted list
 - **Summarize / merge** — smallest route list covering exactly the same addresses
@@ -77,6 +79,7 @@
 - **Multi-record support** — monitor A, AAAA, MX, TXT, NS, CNAME, SOA, CAA, or all at once
 - **Public + Internal** — watch domains against Cloudflare DoH or your own private DNS servers
 - **TLS certificate watching** — optional per entry. Alerts once as a certificate crosses each warning threshold (default 30, 14 and 7 days), when it expires, when it is renewed or replaced, and when checks keep failing. Works with IP addresses, internal servers, self-signed certificates and any port (LDAPS, 8443, ...), so no public domain or public certificate is needed
+- **Domain registration watching** — optional per entry, public domains only. Alerts once as the registration crosses each warning threshold (default 60, 30, 14 and 7 days), when it expires, when it is renewed, and when the registry puts it on hold or in redemption. A host name such as `www.example.com` is checked as its registered domain. Checks run at most every 12 hours.
 - **Detail panel** — click any watched domain to see its current snapshot, last check time, and full change log
 
 ### Notifications & Alerting
@@ -283,6 +286,8 @@ All changes take effect immediately — no container restart required.
 - **Upgrading.** Existing installs keep working. The old password hash is upgraded to a salted hash the first time you sign in.
 - **Behind a proxy or load balancer.** Lockouts and rate limits count per visitor. NetRecon reads the visitor's real address from X-Forwarded-For, but only when the connection comes from a proxy on a private address (Traefik, Caddy, AWS ALB and Azure Application Gateway all qualify), so a visitor cannot fake it. If your proxy connects from a public address, such as Google Cloud's load balancer or Cloudflare, add it with the TRUSTED_PROXIES setting. **Settings → Security → Your Connection** shows the address NetRecon sees for you. Details are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 - **Public TLS check.** It refuses private, loopback and link-local addresses, so it cannot be pointed at your internal network. Certificate watches of internal hosts are configured by the admin and are allowed to reach private addresses.
+- **Activity log.** The admin **Activity** page records sign-ins, failed and blocked attempts, setting and password changes, watch changes and password resets from the command line (last 1000 events, kept in `/data/audit.json`). It records the names of settings that changed, never their values, passwords or webhook secrets.
+- **Domain registration lookups.** The container asks the public RDAP services listed by IANA (`data.iana.org`). It only connects over HTTPS to registry servers, never to IP addresses or private networks, and caps the answer size and time.
 - **Set the admin password before exposing a new instance.** Until the first-run wizard is finished, anyone who can reach the page can finish it.
 
 ### Customizing Quick Links
@@ -332,12 +337,16 @@ netrecon/
 │       ├── dnssec.js           # DNSSEC status (validated, partial, failing, not signed)
 │       ├── net-guard.js        # Private/reserved address checks for the public TLS tool
 │       ├── tls-check.js        # TLS certificate reader
+│       ├── rdap.js             # Domain registration lookup (RDAP)
+│       ├── rdap-handler.js     # GET /rdap endpoint
 │       ├── stats.js            # Stats persistence
 │       ├── admin/
 │       │   ├── config-store.js # Runtime config I/O (/data/config.json)
 │       │   ├── password.js     # Salted scrypt hashing, verify, change
 │       │   ├── session.js      # Session tokens, login lockout, auth guard
-│       │   └── handlers.js     # HTTP handlers for /admin/* routes
+│       │   ├── handlers.js     # HTTP handlers for /admin/* routes
+│       │   ├── audit.js        # Admin activity log (/data/audit.json)
+│       │   └── audit-handlers.js # GET /admin/audit
 │       ├── notify/
 │       │   ├── dispatcher.js   # Routes events to all configured channels
 │       │   ├── format.js       # Shared color/timestamp helpers
@@ -355,6 +364,9 @@ netrecon/
 │           ├── diff.js         # Pure function: compares two record sets
 │           ├── cert.js         # Certificate alert rules (pure, unit-tested)
 │           ├── cert-check.js   # Runs one certificate check and records the result
+│           ├── domain-expiry.js # Registration alert rules (pure, unit-tested)
+│           ├── expiry-check.js # Runs one registration check
+│           ├── expiry-alerts.js # Registration notifications
 │           └── alerts.js       # Formats + dispatches change notifications
 └── frontend/
     ├── index.html              # Main application
@@ -370,13 +382,16 @@ netrecon/
         ├── dns/
         │   ├── dns.js          # DNS/IP lookup logic
         │   ├── dns-render.js   # Results rendering (10 record type cards)
-        │   └── dns-dnssec.js   # DNSSEC badge and card
+        │   ├── dns-dnssec.js   # DNSSEC badge and card
+        │   └── dns-rdap.js     # Domain Registration card
         ├── idns/
         │   ├── idns.js         # Internal DNS logic
         │   └── idns-render.js  # Results rendering
         ├── calc/
         │   ├── calc.js          # Input parsing and subnet math
         │   ├── calc-render.js   # Binary display, subnet splits, supernets
+        │   ├── calc-ip6.js      # IPv6 maths (BigInt), unit-tested
+        │   ├── calc-ip6-render.js # IPv6 result display
         │   ├── calc-tools.js    # Cheat sheet, host finder, live results
         │   ├── calc-nettools.js # Pure logic: VLSM, overlaps, summarize, CSV
         │   ├── calc-dhcp.js     # Windows DHCP scope PowerShell dialog
@@ -399,6 +414,8 @@ netrecon/
             ├── admin.js        # Page orchestrator
             ├── admin-auth.js   # Login gate + authenticated fetch helper
             ├── admin-nav.js    # Tab routing (Dashboard / Watched / Settings)
+            ├── audit/
+            │   └── audit.js    # Activity page (admin audit trail)
             ├── settings/
             │   ├── settings.js # Settings page orchestrator + tab switching
             │   ├── general.js  # Internal DNS toggle
@@ -410,6 +427,7 @@ netrecon/
                 ├── watched.js       # Watched domains page orchestrator
                 ├── watched-table.js # Domain list table + remove
                 ├── watched-detail.js # Domain detail slide-in panel
+                ├── watched-expiry.js # Registration badge and detail section
                 └── watched-form.js  # Add domain form + validation
 ```
 

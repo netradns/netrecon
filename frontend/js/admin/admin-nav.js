@@ -1,5 +1,5 @@
 // ── NetRecon Admin — Page Navigation ─────────────────────────────
-// Handles tab switching between Dashboard, Watched Domains, and Settings.
+// Handles tab switching between Dashboard, Watched Domains, Activity, and Settings.
 //
 // Each "page" is a div with class .admin-page inside #adminPageContainer.
 // Switching pages shows/hides the relevant div and updates the sidebar
@@ -17,6 +17,7 @@
 const _adminPageTitles = {
   dashboard: '<b>Dashboard</b> &mdash; System &amp; Usage',
   watched:   '<b>Watched Domains</b> &mdash; DNS Change Monitoring',
+  audit:     '<b>Activity</b> &mdash; Sign-ins &amp; Changes',
   settings:  '<b>Settings</b> &mdash; Configuration',
 };
 
@@ -28,7 +29,7 @@ let _currentAdminPage = 'dashboard';
  * Updates the active nav item, page visibility, and topbar title.
  * Calls the page's data loader if one is registered.
  *
- * @param {string} pageId - 'dashboard' | 'watched' | 'settings'
+ * @param {string} pageId - 'dashboard' | 'watched' | 'audit' | 'settings'
  */
 function showAdminPage(pageId) {
   if (!_adminPageTitles[pageId]) return;
@@ -51,6 +52,7 @@ function showAdminPage(pageId) {
   // Call the page's data loader
   if (pageId === 'dashboard') refreshAll();
   if (pageId === 'watched')   loadWatchedPage();
+  if (pageId === 'audit')     loadAuditPage();
   if (pageId === 'settings')  loadSettingsPage();
 }
 

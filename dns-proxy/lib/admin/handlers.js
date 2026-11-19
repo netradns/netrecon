@@ -28,10 +28,13 @@
 const { getConfig, saveConfig }    = require('./config-store');
 const { verifyPassword, changePassword, isUsingDefaultPassword } = require('./password');
 const session                      = require('./session');
+const audit                        = require('./audit');
 const { getLog }                   = require('../notify/log');
 const { dispatch }                 = require('../notify/dispatcher');
 const { getWatched, saveWatched }  = require('../watcher/snapshot');
 const { normalizeWarnDays, normalizePort } = require('../watcher/cert');
+const { normalizeWarnDays: normalizeExpiryWarnDays } = require('../watcher/domain-expiry');
+const { normalizeDomain } = require('../rdap');
 const watcher                     = require('../watcher');
 const { parseIPv4, isPrivateAddress } = require('../net-guard');
 const { jsonSafe }                 = require('../handlers');
@@ -68,6 +71,7 @@ async function handleLogin(req, res) {
   const gate = session.checkLogin(ip);
   if (!gate.allowed) {
     res.setHeader('Retry-After', String(gate.retryAfterSec));
+    audit.record('login_blocked', { ip, actor: 'anonymous', detail: 'attempt while locked out' });
     return jsonSafe(res, 429, {
       error: `Too many failed attempts. Try again in ${Math.ceil(gate.retryAfterSec / 60)} minute(s).`,
     });
@@ -76,6 +80,7 @@ async function handleLogin(req, res) {
   let body;
   try { body = JSON.parse(await readBody(req)); }
   catch { return jsonSafe(res, 400, { error: 'Invalid JSON body' }); }
+  if (!body || typeof body !== 'object') body = {};
 
   // Check the password first so a wrong username takes as long as a wrong password
   const passwordOk = await verifyPassword(typeof body.password === 'string' ? body.password : '');
@@ -83,12 +88,15 @@ async function handleLogin(req, res) {
 
   if (!ok) {
     session.recordFailure(ip);
+    audit.record('login_failed', { ip, actor: 'anonymous', detail: `username: ${body.username}` });
+    if (!session.checkLogin(ip).allowed) audit.record('login_locked', { ip, actor: 'anonymous', detail: 'too many wrong passwords' });
     await new Promise(r => setTimeout(r, 300));
     console.warn(`[WARN] Failed admin login from ${ip}`);
     return jsonSafe(res, 401, { error: 'Incorrect username or password' });
   }
 
   session.recordSuccess(ip);
+  audit.record('login_ok', { ip, actor: 'admin', detail: isUsingDefaultPassword() ? 'still using the default password' : '' });
   return jsonSafe(res, 200, {
     ok:           true,
     token:        session.createSession(),
@@ -101,7 +109,9 @@ async function handleLogin(req, res) {
 // ── POST /admin/logout ────────────────────────────────────────────
 /** Ends the caller's session. Always succeeds. */
 function handleLogout(req, res) {
-  session.revokeSession(session.getToken(req));
+  const token = session.getToken(req);
+  if (session.validateSession(token)) audit.record('logout', { ip: session.clientIp(req) });
+  session.revokeSession(token);
   return jsonSafe(res, 200, { ok: true });
 }
 
@@ -214,6 +224,7 @@ async function handlePutConfig(req, res) {
   }
 
   saveConfig(update);
+  audit.record('settings_changed', { ip: session.clientIp(req), detail: Object.keys(update).join(', ') });
   return jsonSafe(res, 200, { ok: true });
 }
 
@@ -237,7 +248,12 @@ async function handleChangePassword(req, res) {
     typeof body.newPassword     === 'string' ? body.newPassword     : ''
   );
 
-  if (result.ok) session.revokeOtherSessions(session.getToken(req));
+  if (result.ok) {
+    session.revokeOtherSessions(session.getToken(req));
+    audit.record('password_changed', { ip: session.clientIp(req), detail: 'other sessions signed out' });
+  } else if (/incorrect/i.test(result.error || '')) {
+    audit.record('password_change_failed', { ip: session.clientIp(req), detail: 'wrong current password' });
+  }
   return jsonSafe(res, result.ok ? 200 : 400, result);
 }
 // ── GET /admin/notify-log ─────────────────────────────────────────
@@ -280,6 +296,7 @@ async function handleTestNotify(req, res) {
       _channelOverride: [ch],
       _event: 'test',
     });
+    audit.record('notify_test', { ip: session.clientIp(req), detail: String(ch.service) });
     return jsonSafe(res, 200, { ok: true });
   } catch (err) {
     return jsonSafe(res, 500, { error: err.message });
@@ -305,9 +322,11 @@ function handleGetWatched(req, res) {
  *   recordTypes: Array   - e.g. ["A", "MX", "TXT"] or ["ALL"]. May be empty when cert is set.
  *   interval:    number  - poll interval in minutes (5, 15, 60, 360, 1440)
  *   cert:        object  - optional { enabled, port, warnDays } to watch the TLS certificate
+ *   expiry:      object  - optional { enabled, warnDays } to watch the domain registration
+ *                          (public domains only: internal names and IP addresses are not registered)
  *
- * Entries can watch DNS records, a certificate, or both. An IP address has no
- * DNS records to watch, so it must be a certificate watch.
+ * Entries can watch DNS records, a certificate, a registration, or any mix. An IP
+ * address has no DNS records or registration, so it must be a certificate watch.
  */
 async function handleAddWatched(req, res) {
   if (!requireAuth(req, res)) return;
@@ -332,10 +351,22 @@ async function handleAddWatched(req, res) {
     cert = { enabled: true, port, warnDays: normalizeWarnDays(body.cert.warnDays) };
   }
 
+  // Domain registration watch (optional). Internal names and IP addresses are not registered anywhere.
+  let expiry = null;
+  if (body.expiry && body.expiry.enabled) {
+    if (source === 'internal') {
+      return jsonSafe(res, 400, { error: 'Registration expiry applies to public domains. Choose the Public source.' });
+    }
+    if (!normalizeDomain(domain)) {
+      return jsonSafe(res, 400, { error: 'Registration expiry needs a registered domain name, such as example.com.' });
+    }
+    expiry = { enabled: true, warnDays: normalizeExpiryWarnDays(body.expiry.warnDays) };
+  }
+
   const VALID_TYPES = new Set(['A','AAAA','MX','TXT','NS','CNAME','SOA','CAA','SRV','ALL']);
   let recordTypes = Array.isArray(body.recordTypes)
     ? body.recordTypes.filter(t => VALID_TYPES.has(String(t).toUpperCase())).map(t => String(t).toUpperCase())
-    : (cert ? [] : ['A', 'MX', 'TXT', 'NS']);
+    : (cert || expiry ? [] : ['A', 'MX', 'TXT', 'NS']);
 
   // An IP address is not a DNS name: watch its certificate only
   const isIp = !!parseIPv4(domain);
@@ -344,14 +375,15 @@ async function handleAddWatched(req, res) {
   }
   if (isIp) {
     if (!cert) return jsonSafe(res, 400, { error: 'An IP address has no DNS records to watch. Turn on certificate monitoring instead.' });
+    if (expiry) return jsonSafe(res, 400, { error: 'An IP address has no domain registration to watch.' });
     recordTypes = [];
     if (source === 'public' && isPrivateAddress(domain)) {
       return jsonSafe(res, 400, { error: 'That is a private address. Choose the Internal source to watch it.' });
     }
   }
 
-  if (!recordTypes.length && !cert) {
-    return jsonSafe(res, 400, { error: 'Choose at least one record type, or turn on certificate monitoring.' });
+  if (!recordTypes.length && !cert && !expiry) {
+    return jsonSafe(res, 400, { error: 'Choose at least one record type, or turn on certificate or registration monitoring.' });
   }
 
   // Allowed poll intervals in minutes
@@ -364,7 +396,8 @@ async function handleAddWatched(req, res) {
   // or watch the same certificate port twice.
   const clash = watched.domains.find(d => d.domain === domain && d.source === source && (
     ((d.recordTypes || []).length > 0 && recordTypes.length > 0) ||
-    (d.cert && cert && d.cert.port === cert.port)
+    (d.cert && cert && d.cert.port === cert.port) ||
+    (d.expiry && expiry)
   ));
   if (clash) {
     return jsonSafe(res, 409, { error: `Already watching ${domain} (${source})` });
@@ -376,16 +409,22 @@ async function handleAddWatched(req, res) {
     source,
     recordTypes,
     cert,
+    expiry,
     interval,
     addedAt:     Date.now(),
     lastChecked: null,
     lastChanged: null,
     status:      'pending', // pending | stable | changed | error
     certStatus:  cert ? 'pending' : null,
+    expiryStatus: expiry ? 'pending' : null,
   };
 
   watched.domains.push(entry);
   saveWatched(watched);
+  audit.record('watched_added', {
+    ip: session.clientIp(req),
+    detail: `${domain} (${source}): ` + [recordTypes.length ? 'DNS records' : '', cert ? 'certificate' : '', expiry ? 'domain registration' : ''].filter(Boolean).join(' + '),
+  });
 
   // First check right away, so the admin sees a result without waiting for the next tick
   watcher.checkNow(entry).catch(err => console.error(`[watcher] First check failed for ${domain}: ${err.message}`));
@@ -405,7 +444,7 @@ async function handleCheckWatched(req, res, id) {
   if (!entry) return jsonSafe(res, 404, { error: 'Watched domain not found' });
 
   await watcher.checkNow(entry);
-  return jsonSafe(res, 200, { ok: true, entry, cert: (watched.certs || {})[id] || null });
+  return jsonSafe(res, 200, { ok: true, entry, cert: (watched.certs || {})[id] || null, expiry: (watched.expiries || {})[id] || null });
 }
 
 // ── DELETE /admin/watched/:id ─────────────────────────────────────
@@ -422,6 +461,7 @@ function handleRemoveWatched(req, res, id) {
   const before  = watched.domains.length;
 
   // Remove the domain entry
+  const removed = watched.domains.find(d => d.id === id);
   watched.domains = watched.domains.filter(d => d.id !== id);
 
   if (watched.domains.length === before) {
@@ -431,9 +471,11 @@ function handleRemoveWatched(req, res, id) {
   // Clean up associated snapshot and change log
   delete watched.snapshots[id];
   if (watched.certs) delete watched.certs[id];
+  if (watched.expiries) delete watched.expiries[id];
   watched.changeLog = (watched.changeLog || []).filter(e => e.watchId !== id);
 
   saveWatched(watched);
+  audit.record('watched_removed', { ip: session.clientIp(req), detail: removed ? `${removed.domain} (${removed.source})` : String(id) });
   return jsonSafe(res, 200, { ok: true });
 }
 

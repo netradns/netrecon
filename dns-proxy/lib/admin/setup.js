@@ -20,6 +20,8 @@
 'use strict';
 
 const { hashPassword, validateNewPassword } = require('./password');
+const { clientIp }                     = require('./session');
+const audit                          = require('./audit');
 const { getConfig, saveConfig } = require('./config-store');
 
 /**
@@ -106,6 +108,7 @@ function handleSetup(req, res, jsonSafe, readBody) {
       internalDnsEnabled: dnsServers.length > 0,
     });
 
+    audit.record('setup_completed', { ip: clientIp(req), actor: 'anonymous', detail: 'first-run setup finished' });
     console.log('[INFO] First-run setup completed');
     if (dnsServers.length) {
       console.log(`[INFO] Internal DNS servers configured: ${dnsServers.join(', ')}`);

@@ -18,6 +18,8 @@
 
 const { getConfig, saveConfig } = require('./config-store');
 const { jsonSafe }              = require('../handlers');
+const audit                    = require('./audit');
+const session                  = require('./session');
 
 /**
  * GET /admin/server-settings
@@ -119,6 +121,7 @@ async function handlePutServerSettings(req, res, readBody, reconfigure) {
 
   // Save to config store
   saveConfig(update);
+  audit.record('server_settings_changed', { ip: session.clientIp(req), detail: Object.keys(update).join(', ') });
 
   // Hot-reload the resolver with new settings
   try {

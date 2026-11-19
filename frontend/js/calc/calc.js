@@ -17,6 +17,9 @@ function runCalc(cidrOverride, silent) {
   var out = document.getElementById('calc-results');
   if (!out) return;
 
+  // IPv6 has its own maths and layout (calc-ip6.js, calc-ip6-render.js)
+  if (typeof isIp6Input === 'function' && isIp6Input(raw)) { runCalc6(raw, silent, out); return; }
+  window._calc6Last = null;
   // Just a prefix ("/27") or just a mask ("255.255.255.224"): show what it means, no IP needed
   var only = parsePrefixOnly(raw);
   if (only !== null) {

@@ -9,7 +9,7 @@
 //   3. On each tick, every watched domain is checked against its
 //      configured interval — if enough time has passed, it's polled
 //   4. Polling, diffing, and alerting are delegated to their modules
-//   5. An entry can watch DNS records, a TLS certificate, or both
+//   5. An entry can watch DNS records, a TLS certificate, a domain registration, or any mix
 //
 // This "single timer, per-domain interval check" pattern avoids
 // creating one timer per domain (which would be hard to manage as
@@ -21,6 +21,7 @@ const { getWatched, saveWatched }          = require('./snapshot');
 const { pollDomain }                       = require('./poller');
 const { diffRecords }                      = require('./diff');
 const { checkCertificate }                 = require('./cert-check');
+const { checkDomainExpiry }                = require('./expiry-check');
 const { alertRecordChanged, alertRecovered, alertError } = require('./alerts');
 const { MAX_CHANGE_HISTORY }               = require('../config');
 
@@ -126,8 +127,13 @@ async function checkDomain(entry, watched) {
 // request for the same entry never run at the same time.
 const _inFlight = new Set();
 
-// What the main Status column shows for a certificate-only entry
-const CERT_ENTRY_STATUS = { ok: 'stable', expiring: 'changed', expired: 'error', error: 'error', pending: 'pending' };
+// What the main Status column shows for an entry with no DNS records, from its certificate
+// and registration state. When both are watched, the worse one wins.
+const CERT_ENTRY_STATUS = {
+  ok: 'stable', expiring: 'changed', expired: 'error', error: 'error', pending: 'pending',
+  notfound: 'error', unsupported: 'error', noexpiry: 'changed',
+};
+const STATUS_RANK = { stable: 0, pending: 1, changed: 2, error: 3 };
 
 /**
  * Runs every check an entry asks for: DNS records, TLS certificate, or both.
@@ -154,10 +160,20 @@ async function checkEntry(entry, watched, opts) {
       }
     }
 
-    // A certificate-only entry has no DNS poll, so its status comes from the certificate
+    if (entry.expiry && entry.expiry.enabled) {
+      try {
+        await checkDomainExpiry(entry, watched, { force: !!(opts && opts.force) });
+      } catch (err) {
+        console.error(`[watcher] Registration check failed for ${entry.domain}: ${err.message}`);
+      }
+    }
+
+    // An entry with no DNS poll takes its status from the certificate and registration checks
     if (!watchesDns) {
+      const states = [entry.cert && entry.certStatus, entry.expiry && entry.expiryStatus]
+        .filter(Boolean).map(s => CERT_ENTRY_STATUS[s] || 'pending');
       entry.lastChecked = Date.now();
-      entry.status      = CERT_ENTRY_STATUS[entry.certStatus] || 'pending';
+      entry.status      = states.sort((a, b) => STATUS_RANK[b] - STATUS_RANK[a])[0] || 'pending';
     }
     saveWatched(watched);
 

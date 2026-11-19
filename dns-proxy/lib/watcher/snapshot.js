@@ -12,6 +12,8 @@
 //         recordTypes: string[], // ["A", "MX", "TXT"] or ["ALL"]. Empty = certificate-only watch.
 //         cert:        object|null, // { enabled, port, warnDays[] } when the TLS certificate is watched
 //         certStatus:  string,   // "ok" | "expiring" | "expired" | "error" | "pending"
+//         expiry:      object|null, // { enabled, warnDays[] } when the domain registration is watched
+//         expiryStatus: string,  // "ok" | "expiring" | "expired" | "notfound" | "unsupported" | "noexpiry" | "error" | "pending"
 //         interval:    number,   // poll interval in minutes
 //         addedAt:     number,   // unix ms timestamp
 //         lastChecked: number|null,
@@ -28,14 +30,17 @@
 //     certs: {
 //       "<id>": { ... }       // latest certificate state, see cert.js evaluateCert()
 //     },
+//     expiries: {
+//       "<id>": { ... }       // latest domain registration state, see domain-expiry.js
+//     },
 //     changeLog: [
 //       {
 //         watchId:   string,    // domain entry ID
 //         domain:    string,
 //         ts:        number,
 //         changes:   Array,     // output of diff.js (empty for certificate entries)
-//         kind:      "cert",   // only on certificate events
-//         certEvents: Array,    // [{ type, message }] only on certificate events
+//         kind:      "cert" | "expiry",  // only on certificate / registration events
+//         certEvents / expiryEvents: Array,  // [{ type, message }]
 //       }
 //     ]
 //   }
@@ -53,7 +58,7 @@ let _cache = null;
 
 // ── Default structure ─────────────────────────────────────────────
 function defaultWatched() {
-  return { domains: [], snapshots: {}, certs: {}, changeLog: [] };
+  return { domains: [], snapshots: {}, certs: {}, expiries: {}, changeLog: [] };
 }
 
 // ── Load ──────────────────────────────────────────────────────────
@@ -61,7 +66,7 @@ function defaultWatched() {
  * Returns the current watched domains state.
  * Reads from disk on first call, returns the in-memory cache thereafter.
  *
- * @returns {{ domains: Array, snapshots: Object, certs: Object, changeLog: Array }}
+ * @returns {{ domains: Array, snapshots: Object, certs: Object, expiries: Object, changeLog: Array }}
  */
 function getWatched() {
   if (_cache) return _cache;
@@ -73,6 +78,7 @@ function getWatched() {
     if (!_cache.domains)   _cache.domains   = [];
     if (!_cache.snapshots) _cache.snapshots = {};
     if (!_cache.certs)     _cache.certs     = {};
+    if (!_cache.expiries)  _cache.expiries  = {};
     if (!_cache.changeLog) _cache.changeLog = [];
   } catch {
     _cache = defaultWatched();

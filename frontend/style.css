@@ -263,6 +263,12 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 .bit-b.zero{background:var(--bg);color:var(--text-3);border:1px solid var(--border);}
 .calc-error{padding:14px 18px;color:var(--red);background:var(--red-light);border:1px solid var(--red-border);border-radius:8px;font-size:13px;display:flex;align-items:center;gap:7px;animation:fu .2s ease both;}
 @media(max-width:520px){.bit-b{width:11px;font-size:9px;}.bit-octet+.bit-octet{margin-left:3px;}}
+/* IPv6 address layout: hex digits instead of bits (calc-ip6-render.js) */
+.bit-b.v6-d{width:14px;}
+.bit-b.v6-mix{background:var(--yellow-light);color:var(--yellow);border:1px solid var(--border);}
+.v6-key{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-family:'DM Sans',sans-serif;font-size:11px;color:var(--text-3);margin-top:8px;}
+.v6-sw{width:12px;height:12px;}
+@media(max-width:520px){.bit-b.v6-d{width:9px;}}
 
 /* ══════════════════════════════════
    CLOUD CIDR
@@ -831,3 +837,12 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(-
 .login-note{font-size:11.5px;color:var(--text-3);margin-top:12px;line-height:1.45;display:none;}
 .admin-banner{background:var(--yellow-light, #fffbeb);border-bottom:1px solid var(--yellow-border, #fde68a);color:var(--text);font-size:12.5px;padding:8px 20px;}
 .admin-banner a{color:var(--blue);font-weight:600;}
+
+/* Admin: Activity page */
+.audit-summary{font-size:12.5px;color:var(--text-3);margin-bottom:14px;}
+.audit-summary b{color:var(--text);}
+.audit-summary b.audit-bad{color:var(--red);}
+.audit-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;}
+.audit-chip{background:var(--surface);color:var(--text-3);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-family:'DM Sans',sans-serif;font-size:12px;cursor:pointer;}
+.audit-chip:hover{color:var(--text);}
+.audit-chip.active{background:var(--blue-light);color:var(--blue);border-color:var(--blue-border);font-weight:600;}

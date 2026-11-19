@@ -31,6 +31,7 @@ test('with no arguments it generates a strong password that works after a restar
   assert.ok(printed, 'the new password is printed');
   assert.match(printed[1], /^[a-z2-9]{4}(-[a-z2-9]{4}){3}$/);
 
+  assert.ok(fs.existsSync(path.join(dir, 'audit-pending.ndjson')), 'the reset is queued for the audit trail');
   const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
   assert.match(cfg.adminPassword, /^scrypt\$/);
   assert.equal(cfg.statsPasswordHash, null);
@@ -40,8 +41,17 @@ test('with no arguments it generates a strong password that works after a restar
   // The server reads the file when it starts, like after "docker compose restart"
   const srv = await startServer({ dataDir: dir });
   try {
-    assert.equal((await login(srv, printed[1])).status, 200);
+    const ok = await login(srv, printed[1]);
+    assert.equal(ok.status, 200);
     assert.equal((await login(srv, 'admin')).status, 401);
+
+    // The reset shows up in the audit trail, attributed to the command line
+    const { events } = (await srv.request('GET', '/admin/audit', { token: ok.body.token })).body;
+    const reset = events.find(e => e.type === 'password_reset_cli');
+    assert.ok(reset, 'the reset is in the audit trail');
+    assert.equal(reset.actor, 'cli');
+    assert.ok(!JSON.stringify(events).includes(printed[1]), 'the new password is not in the audit trail');
+    assert.equal(fs.existsSync(path.join(dir, 'audit-pending.ndjson')), false, 'the queue file was consumed');
   } finally { await srv.stop({ keepData: true }); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

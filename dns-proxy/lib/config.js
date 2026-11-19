@@ -93,6 +93,16 @@ const MAX_NOTIFY_LOG = 200;
 // Maximum change history entries kept per watched domain
 const MAX_CHANGE_HISTORY = 100;
 
+// ── Admin audit trail ─────────────────────────────────────────────
+// AUDIT_FILE: who signed in and what was changed in the admin panel.
+// PENDING_AUDIT_FILE: events written by command-line tools (such as
+//   reset-password.js) while the server is not running. The server reads
+//   and removes this file when it starts.
+const AUDIT_FILE         = path.join(process.env.STATS_DIR || '/data', 'audit.json');
+const PENDING_AUDIT_FILE = path.join(process.env.STATS_DIR || '/data', 'audit-pending.ndjson');
+// Maximum audit events kept (oldest are dropped first)
+const MAX_AUDIT_LOG = 1000;
+
 // ── Validation ────────────────────────────────────────────────────
 if (!DNS_SERVERS.length) {
   console.warn('[WARN] DNS_SERVERS is empty — Internal DNS tool will be unavailable.');
@@ -115,6 +125,9 @@ module.exports = {
   MAX_TOP_DOMAINS,
   MAX_NOTIFY_LOG,
   MAX_CHANGE_HISTORY,
+  AUDIT_FILE,
+  PENDING_AUDIT_FILE,
+  MAX_AUDIT_LOG,
   DEDUP_WINDOW,
   STATS_PASSWORD,
 };

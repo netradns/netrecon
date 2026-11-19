@@ -9,6 +9,7 @@
 // Parse "10.0.0.0/24", "10.0.0.0 255.255.255.0", etc. into a normalized block.
 // Returns { network, prefix, end, cidr, hostBitsSet } or { error }.
 function parseBlock(text) {
+  if (text.indexOf(':') !== -1) return { error: 'IPv6 is not supported in this tool yet. Use IPv4 blocks here.' };
   var p = parseCalcInput(text);
   if (p.error) return { error: p.error };
   var network = (ip2long(p.ip) & prefixToMaskLong(p.prefix)) >>> 0;

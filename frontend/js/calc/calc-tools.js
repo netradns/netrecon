@@ -122,7 +122,7 @@ document.addEventListener('DOMContentLoaded', function() {
       // "/27" or a mask on its own. A plain number is not live-matched, since "19" is the start of "192.168...".
       var v = input.value.trim();
       var bare = parsePrefixOnly(v) !== null && (v.charAt(0) === '/' || v.indexOf('.') !== -1);
-      if (((!p.error && p.explicit) || bare) && !upToDate) runCalc(null, true);
+      if (((!p.error && p.explicit) || bare || (typeof ip6Ready === 'function' && ip6Ready(v))) && !upToDate) runCalc(null, true);
       calcHostFinder();   // the suggestion mentions the IP being typed
     }, 400);
   });

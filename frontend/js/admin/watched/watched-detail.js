@@ -21,7 +21,7 @@ function openWatchedDetail(entry, watched) {
   const snapshot  = watched.snapshots?.[entry.id];
   const changes   = (watched.changeLog || []).filter(c => c.watchId === entry.id).slice().reverse();
 
-  panel.innerHTML = renderDetailContent(entry, snapshot, changes, watched.certs?.[entry.id]);
+  panel.innerHTML = renderDetailContent(entry, snapshot, changes, watched.certs?.[entry.id], watched.expiries?.[entry.id]);
   panel.classList.add('open');
 }
 
@@ -35,7 +35,7 @@ function closeWatchedDetail() {
 }
 
 // ── Render detail content ─────────────────────────────────────────
-function renderDetailContent(entry, snapshot, changes, certState) {
+function renderDetailContent(entry, snapshot, changes, certState, expiryState) {
   const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const _ts  = ts => ts ? new Date(ts).toLocaleString() : '—';
 
@@ -61,6 +61,7 @@ function renderDetailContent(entry, snapshot, changes, certState) {
   const changesHtml = changes.length
     ? changes.slice(0, 20).map(c => {
         if (c.kind === 'cert') return renderCertEventCard(c, _esc, _ts);
+        if (c.kind === 'expiry') return renderExpiryEventCard(c, _esc, _ts);
         const added   = c.changes.filter(x => x.type === 'added');
         const removed = c.changes.filter(x => x.type === 'removed');
         return `<div style="border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:8px;background:var(--surface)">
@@ -81,7 +82,7 @@ function renderDetailContent(entry, snapshot, changes, certState) {
         <div style="font-size:16px;font-weight:700">${_esc(entry.domain)}</div>
         <div style="font-size:12px;color:var(--text-3);margin-top:2px">
           ${_esc(entry.source === 'internal' ? 'Internal DNS' : 'Public DNS')} ·
-          ${_esc((entry.recordTypes || []).join(', ') || 'Certificate only')} ·
+          ${_esc((entry.recordTypes || []).join(', ') || (entry.cert && entry.expiry ? 'Certificate + registration' : entry.expiry ? 'Registration only' : 'Certificate only'))} ·
           Every ${entry.interval >= 1440 ? '24h' : entry.interval >= 60 ? Math.floor(entry.interval / 60) + 'h' : entry.interval + 'm'}
         </div>
       </div>
@@ -96,6 +97,7 @@ function renderDetailContent(entry, snapshot, changes, certState) {
     </div>
 
     ${entry.cert ? renderCertSection(entry, certState, _esc, _ts) : ''}
+    ${entry.expiry ? renderExpirySection(entry, expiryState, _esc, _ts) : ''}
 
     <!-- Current snapshot -->
     ${(entry.recordTypes || []).length ? `<div class="section" style="margin-bottom:16px">

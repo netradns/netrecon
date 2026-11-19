@@ -23,13 +23,14 @@ function renderWatchedTable(watched) {
 
   const domains = watched.domains || [];
   const certs   = watched.certs   || {};
+  const expiries = watched.expiries || {};
 
   if (!domains.length) {
     container.innerHTML = `
       <div class="empty-state" style="padding:40px 0">
         <div style="font-size:32px;margin-bottom:12px">🔍</div>
         <div style="font-size:14px;font-weight:600;margin-bottom:6px">No domains being watched</div>
-        <div style="font-size:12px;color:var(--text-3)">Add a domain or IP address above to start monitoring DNS changes or certificate expiry.</div>
+        <div style="font-size:12px;color:var(--text-3)">Add a domain or IP address above to start monitoring DNS changes, certificate expiry or domain registration expiry.</div>
       </div>`;
     return;
   }
@@ -57,7 +58,7 @@ function renderWatchedTable(watched) {
       if (c.status === 'expired')      label = 'expired';
       else if (c.status === 'error')   label = 'error';
       else if (!c.ok)                  label = 'unreachable';
-      else                             label = c.daysLeft + 'd';
+      else                             label = 'TLS ' + c.daysLeft + 'd';
     }
     const cls  = (c && certCls[c.status]) || 'p-gray';
     const port = entry.cert.port !== 443 ? ` :${entry.cert.port}` : '';
@@ -66,7 +67,7 @@ function renderWatchedTable(watched) {
   };
   let html = `<div class="table-wrap"><table class="data-table" id="watchedDomainsTable">
     <thead><tr>
-      <th>Domain</th><th>Source</th><th>Types</th><th>Certificate</th><th>Interval</th>
+      <th>Domain</th><th>Source</th><th>Types</th><th>Expiry</th><th>Interval</th>
       <th>Last Checked</th><th>Last Changed</th><th>Status</th><th></th>
     </tr></thead>
     <tbody>`;
@@ -77,14 +78,14 @@ function renderWatchedTable(watched) {
     html += `<tr class="watched-row" data-index="${idx}" style="cursor:pointer">
       <td style="font-weight:600">${_esc(entry.domain)}</td>
       <td><span class="pill ${entry.source === 'internal' ? 'p-yellow' : 'p-blue'}" style="font-size:10px">${_esc(entry.source)}</span></td>
-      <td class="mono" style="font-size:11px;color:var(--text-3)">${_esc(types || (entry.cert ? 'certificate only' : ''))}</td>
-      <td>${certBadge(entry, certs[entry.id])}</td>
+      <td class="mono" style="font-size:11px;color:var(--text-3)">${_esc(types || (entry.cert && entry.expiry ? 'certificate + registration' : entry.cert ? 'certificate only' : entry.expiry ? 'registration only' : ''))}</td>
+      <td style="white-space:nowrap">${certBadge(entry, certs[entry.id])} ${expiryBadge(entry, expiries[entry.id])}</td>
       <td style="font-size:12px;color:var(--text-3)">${intervalLabel(entry.interval)}</td>
       <td style="font-size:11px;color:var(--text-3)">${_ago(entry.lastChecked)}</td>
       <td style="font-size:11px;color:var(--text-3)">${_ago(entry.lastChanged)}</td>
       <td><span class="pill ${statusCls[entry.status] || 'p-gray'}" style="font-size:10px">${_esc(entry.status || 'pending')}</span></td>
       <td style="white-space:nowrap">
-        ${entry.cert ? `<button class="btn btn-ghost btn-sm watched-check-btn" data-index="${idx}">Check now</button>` : ''}
+        ${(entry.cert || entry.expiry) ? `<button class="btn btn-ghost btn-sm watched-check-btn" data-index="${idx}">Check now</button>` : ''}
         <button class="btn btn-ghost btn-sm watched-remove-btn" data-index="${idx}" style="color:var(--red)">Remove</button>
       </td>
     </tr>`;

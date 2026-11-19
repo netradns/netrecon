@@ -214,18 +214,25 @@ async function runLookup() {
 
   renderDnsResults(raw, { aRecs, aaaaRecs, cnameRecs, mxRecs, txtRecs, nsRecs, soaRecs, caaRecs, dmarcRecs, dkimRecs, geoData, dnssec });
 
-  // Fire blacklist + TLS checks in parallel (non-blocking — append cards when ready)
+  // Fire blacklist + TLS + registration checks in parallel (non-blocking — append cards when ready)
   var firstIp = (aRecs && aRecs.length) ? aRecs[0].data : null;
   Promise.all([
     firstIp ? fetchBlacklist(firstIp) : Promise.resolve(null),
     fetchTlsCheck(raw),
+    fetchRdap(raw),
   ]).then(function(results) {
     var container = document.getElementById('dns-results');
     if (!container) return;
     var resultsDiv = container.querySelector('.results');
     if (!resultsDiv) return;
 
-    // Append the cards in the same order as the sidebar: TLS Certificate, then Blacklist Check
+    // Append the cards in the same order as the sidebar: Registration, TLS Certificate, then Blacklist Check
+    var rdapHtml = renderRdapCard(results[2], raw, 160);
+    if (rdapHtml) {
+      var rdapDiv = document.createElement('div');
+      rdapDiv.innerHTML = rdapHtml;
+      while (rdapDiv.firstChild) resultsDiv.appendChild(rdapDiv.firstChild);
+    }
     var tlsHtml = renderTlsCard(results[1], raw, 200);
     if (tlsHtml) {
       var tlsDiv = document.createElement('div');

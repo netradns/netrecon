@@ -56,7 +56,14 @@ const {
 } = require('./lib/admin/handlers');
 
 // Session guard for routes outside /admin that must not be public (stats)
-const { requireAuth } = require('./lib/admin/session');
+const { requireAuth, clientIp } = require('./lib/admin/session');
+
+// Audit trail: who signed in and what was changed
+const audit = require('./lib/admin/audit');
+const { handleGetAudit } = require('./lib/admin/audit-handlers');
+
+// Domain registration lookup (RDAP)
+const { handleRdap } = require('./lib/rdap-handler');
 
 // Setup wizard handlers (first-run only)
 const { handleSetupStatus, handleSetup } = require('./lib/admin/setup');
@@ -90,6 +97,7 @@ function shutdown() {
   console.log('[INFO] Shutting down...');
   flush();            // Write any pending stats to disk before exit
   flushNotifyLog();   // Write any pending notify log entries to disk
+  audit.flush();      // Write any pending audit events to disk
   server.close(() => {
     console.log('[INFO] HTTP server closed');
     process.exit(0);
@@ -135,9 +143,10 @@ const server = http.createServer(async (req, res) => {
     // Stats hold recent lookups (internal hostnames, calculator input), so reading or clearing them needs a login
     if (pathname === '/stats'            && method === 'GET') { if (!requireAuth(req, res)) return; return handleStatsGet(req, res); }
     if (pathname === '/stats/log'        && method === 'POST') return handleStatsLog(req, res);
-    if (pathname === '/stats/clear'      && method === 'POST') { if (!requireAuth(req, res)) return; return handleStatsClear(req, res); }
+    if (pathname === '/stats/clear'      && method === 'POST') { if (!requireAuth(req, res)) return; audit.record('stats_cleared', { ip: clientIp(req) }); return handleStatsClear(req, res); }
     if (pathname === '/blacklist'        && method === 'GET')  return handleBlacklist(req, res, query);
     if (pathname === '/tls-check'        && method === 'GET')  return handleTlsCheck(req, res, query);
+    if (pathname === '/rdap'             && method === 'GET')  return handleRdap(req, res, query);
 
     // ── Admin routes ─────────────────────────────────────────────
     // All /admin/* routes except login require a session token (checked inside each handler).
@@ -148,6 +157,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/admin/config'       && method === 'PUT')    return handlePutConfig(req, res);
     if (pathname === '/admin/password'     && method === 'POST')   return handleChangePassword(req, res);
     if (pathname === '/admin/notify-log'   && method === 'GET')    return handleGetNotifyLog(req, res);
+    if (pathname === '/admin/audit'        && method === 'GET')    return handleGetAudit(req, res);
     if (pathname === '/admin/notify/test'  && method === 'POST')   return handleTestNotify(req, res);
     if (pathname === '/admin/watched'      && method === 'GET')    return handleGetWatched(req, res);
     if (pathname === '/admin/watched'      && method === 'POST')   return handleAddWatched(req, res);

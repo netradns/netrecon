@@ -17,6 +17,7 @@
 
 const crypto = require('crypto');
 const { setPassword, validateNewPassword } = require('./lib/admin/password');
+const { queueCliEvent } = require('./lib/admin/audit');
 
 // Readable random password: 4 groups of 4 letters and digits, no look-alike characters
 function generatePassword() {
@@ -36,6 +37,7 @@ function generatePassword() {
   }
 
   await setPassword(password);
+  queueCliEvent('password_reset_cli', 'reset with reset-password.js');   // shown in the admin Activity page after the restart
 
   console.log('The admin password has been reset.');
   if (!chosen) {

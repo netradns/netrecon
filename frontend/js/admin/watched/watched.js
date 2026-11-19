@@ -22,7 +22,7 @@ function renderWatchedShell() {
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:8px">      <div>
         <div style="font-size:18px;font-weight:700">Watched Domains</div>
         <div style="font-size:12px;color:var(--text-3);margin-top:2px">
-          Monitor public and internal domains for DNS record changes, and TLS certificates for expiry. Get alerted the moment something changes.
+          Monitor public and internal domains for DNS record changes, TLS certificates and domain registrations for expiry. Get alerted the moment something changes.
         </div>
       </div>
       <button class="refresh-btn" onclick="loadWatchedPage()">

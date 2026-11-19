@@ -164,6 +164,21 @@ cd dns-proxy && npm test
 
 ---
 
+## Outbound access the container needs
+
+The dns-proxy container makes these outgoing HTTPS (port 443) connections. If you restrict outbound traffic with a firewall or security group, allow them:
+
+| What for | Where to |
+|---|---|
+| Public DNS lookups and DNSSEC | `cloudflare-dns.com` (DNS over HTTPS) |
+| Domain registration lookups and watches | `data.iana.org` (the list of registries) and each registry's RDAP server, for example `rdap.verisign.com` for .com |
+| Certificate checks and watches | The servers you check, on the port you choose |
+| Notifications | Your Slack, Teams, Discord, webhook or SMTP endpoints |
+
+Without the registry access, everything else works. The Domain Registration card shows that details are unavailable.
+
+---
+
 ## Before you expose it to the internet
 
 1. Finish the setup wizard and choose a strong admin password. Until it is finished, anyone who can reach the page can finish it.
