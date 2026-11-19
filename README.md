@@ -80,7 +80,7 @@
 - **Public + Internal** — watch domains against Cloudflare DoH or your own private DNS servers
 - **TLS certificate watching** — optional per entry. Alerts once as a certificate crosses each warning threshold (default 30, 14 and 7 days), when it expires, when it is renewed or replaced, and when checks keep failing. Works with IP addresses, internal servers, self-signed certificates and any port (LDAPS, 8443, ...), so no public domain or public certificate is needed
 - **Domain registration watching** — optional per entry, public domains only. Alerts once as the registration crosses each warning threshold (default 60, 30, 14 and 7 days), when it expires, when it is renewed, and when the registry puts it on hold or in redemption. A host name such as `www.example.com` is checked as its registered domain. Checks run at most every 12 hours.
-- **Detail panel** — click any watched domain to see its current snapshot, last check time, and full change log
+- **Detail panel** — click any watched domain to see its current snapshot, last check time, and full change log. The same panel has a "What is watched" box: tick or untick DNS record types, the TLS certificate and the domain registration, or change the interval, and save. The entry keeps its history, so there is no need to delete and re-add it.
 
 ### Notifications & Alerting
 - **Multi-channel** — Slack (Block Kit), Microsoft Teams (Adaptive Cards), Discord (Embeds), generic webhooks, and email
@@ -286,7 +286,7 @@ All changes take effect immediately — no container restart required.
 - **Upgrading.** Existing installs keep working. The old password hash is upgraded to a salted hash the first time you sign in.
 - **Behind a proxy or load balancer.** Lockouts and rate limits count per visitor. NetRecon reads the visitor's real address from X-Forwarded-For, but only when the connection comes from a proxy on a private address (Traefik, Caddy, AWS ALB and Azure Application Gateway all qualify), so a visitor cannot fake it. If your proxy connects from a public address, such as Google Cloud's load balancer or Cloudflare, add it with the TRUSTED_PROXIES setting. **Settings → Security → Your Connection** shows the address NetRecon sees for you. Details are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 - **Public TLS check.** It refuses private, loopback and link-local addresses, so it cannot be pointed at your internal network. Certificate watches of internal hosts are configured by the admin and are allowed to reach private addresses.
-- **Activity log.** The admin **Activity** page records sign-ins, failed and blocked attempts, setting and password changes, watch changes and password resets from the command line (last 1000 events, kept in `/data/audit.json`). It records the names of settings that changed, never their values, passwords or webhook secrets.
+- **Activity.** The admin **Activity** page is one place for what happened: sign-ins (including failed and blocked attempts), setting, password and watch changes, command-line password resets, watch alerts (DNS changes, certificate and registration events), notification deliveries and failures, and server starts. It pages through the list (10 to 100 per page), filters by group and exports to CSV. The last 1000 admin events, 200 deliveries and 100 watch alerts are kept. It records the names of settings that changed, never their values, passwords, webhook secrets or web addresses.
 - **Domain registration lookups.** The container asks the public RDAP services listed by IANA (`data.iana.org`). It only connects over HTTPS to registry servers, never to IP addresses or private networks, and caps the answer size and time.
 - **Set the admin password before exposing a new instance.** Until the first-run wizard is finished, anyone who can reach the page can finish it.
 
@@ -346,7 +346,10 @@ netrecon/
 │       │   ├── session.js      # Session tokens, login lockout, auth guard
 │       │   ├── handlers.js     # HTTP handlers for /admin/* routes
 │       │   ├── audit.js        # Admin activity log (/data/audit.json)
-│       │   └── audit-handlers.js # GET /admin/audit
+│       │   ├── audit-handlers.js # GET /admin/audit
+│       │   ├── activity.js        # Merges audit, delivery and watch alerts into one feed
+│       │   ├── watched-rules.js   # Rules for what a watch may contain (add and edit)
+│       │   └── watched-edit.js    # PATCH /admin/watched/:id
 │       ├── notify/
 │       │   ├── dispatcher.js   # Routes events to all configured channels
 │       │   ├── format.js       # Shared color/timestamp helpers
@@ -414,8 +417,9 @@ netrecon/
             ├── admin.js        # Page orchestrator
             ├── admin-auth.js   # Login gate + authenticated fetch helper
             ├── admin-nav.js    # Tab routing (Dashboard / Watched / Settings)
+            ├── admin-pager.js  # Shared page-size and Newer/Older bar
             ├── audit/
-            │   └── audit.js    # Activity page (admin audit trail)
+            │   └── audit.js    # Activity page (paging, groups, CSV export)
             ├── settings/
             │   ├── settings.js # Settings page orchestrator + tab switching
             │   ├── general.js  # Internal DNS toggle
@@ -428,6 +432,7 @@ netrecon/
                 ├── watched-table.js # Domain list table + remove
                 ├── watched-detail.js # Domain detail slide-in panel
                 ├── watched-expiry.js # Registration badge and detail section
+                ├── watched-edit.js   # "What is watched" editor in the detail panel
                 └── watched-form.js  # Add domain form + validation
 ```
 

@@ -29,14 +29,11 @@ const { getConfig, saveConfig }    = require('./config-store');
 const { verifyPassword, changePassword, isUsingDefaultPassword } = require('./password');
 const session                      = require('./session');
 const audit                        = require('./audit');
+const { resolveSettings, findClash, VALID_SOURCES } = require('./watched-rules');
 const { getLog }                   = require('../notify/log');
 const { dispatch }                 = require('../notify/dispatcher');
 const { getWatched, saveWatched }  = require('../watcher/snapshot');
-const { normalizeWarnDays, normalizePort } = require('../watcher/cert');
-const { normalizeWarnDays: normalizeExpiryWarnDays } = require('../watcher/domain-expiry');
-const { normalizeDomain } = require('../rdap');
 const watcher                     = require('../watcher');
-const { parseIPv4, isPrivateAddress } = require('../net-guard');
 const { jsonSafe }                 = require('../handlers');
 
 // Session guard shared by every admin route. See session.js.
@@ -340,69 +337,17 @@ async function handleAddWatched(req, res) {
     return jsonSafe(res, 400, { error: 'Invalid domain name' });
   }
 
-  const VALID_SOURCES = new Set(['public', 'internal']);
   const source = VALID_SOURCES.has(body.source) ? body.source : 'public';
 
-  // Certificate watch (optional)
-  let cert = null;
-  if (body.cert && body.cert.enabled) {
-    const port = normalizePort(body.cert.port);
-    if (port === null) return jsonSafe(res, 400, { error: 'Invalid port. Use a number from 1 to 65535.' });
-    cert = { enabled: true, port, warnDays: normalizeWarnDays(body.cert.warnDays) };
-  }
-
-  // Domain registration watch (optional). Internal names and IP addresses are not registered anywhere.
-  let expiry = null;
-  if (body.expiry && body.expiry.enabled) {
-    if (source === 'internal') {
-      return jsonSafe(res, 400, { error: 'Registration expiry applies to public domains. Choose the Public source.' });
-    }
-    if (!normalizeDomain(domain)) {
-      return jsonSafe(res, 400, { error: 'Registration expiry needs a registered domain name, such as example.com.' });
-    }
-    expiry = { enabled: true, warnDays: normalizeExpiryWarnDays(body.expiry.warnDays) };
-  }
-
-  const VALID_TYPES = new Set(['A','AAAA','MX','TXT','NS','CNAME','SOA','CAA','SRV','ALL']);
-  let recordTypes = Array.isArray(body.recordTypes)
-    ? body.recordTypes.filter(t => VALID_TYPES.has(String(t).toUpperCase())).map(t => String(t).toUpperCase())
-    : (cert || expiry ? [] : ['A', 'MX', 'TXT', 'NS']);
-
-  // An IP address is not a DNS name: watch its certificate only
-  const isIp = !!parseIPv4(domain);
-  if (!isIp && /^\d+(\.\d+){0,3}$/.test(domain)) {
-    return jsonSafe(res, 400, { error: 'That looks like an IP address but is not valid. Use four numbers from 0 to 255, like 10.0.0.5.' });
-  }
-  if (isIp) {
-    if (!cert) return jsonSafe(res, 400, { error: 'An IP address has no DNS records to watch. Turn on certificate monitoring instead.' });
-    if (expiry) return jsonSafe(res, 400, { error: 'An IP address has no domain registration to watch.' });
-    recordTypes = [];
-    if (source === 'public' && isPrivateAddress(domain)) {
-      return jsonSafe(res, 400, { error: 'That is a private address. Choose the Internal source to watch it.' });
-    }
-  }
-
-  if (!recordTypes.length && !cert && !expiry) {
-    return jsonSafe(res, 400, { error: 'Choose at least one record type, or turn on certificate or registration monitoring.' });
-  }
-
-  // Allowed poll intervals in minutes
-  const VALID_INTERVALS = new Set([5, 15, 60, 360, 1440]);
-  const interval = VALID_INTERVALS.has(Number(body.interval)) ? Number(body.interval) : 60;
+  // Which settings are allowed is decided in watched-rules.js, shared with the edit route
+  const settings = resolveSettings(domain, source, body);
+  if (!settings.ok) return jsonSafe(res, settings.status, { error: settings.error });
+  const { recordTypes, cert, expiry, interval } = settings;
 
   const watched = getWatched();
-
-  // Reject duplicates: the same host and source may not watch DNS twice,
-  // or watch the same certificate port twice.
-  const clash = watched.domains.find(d => d.domain === domain && d.source === source && (
-    ((d.recordTypes || []).length > 0 && recordTypes.length > 0) ||
-    (d.cert && cert && d.cert.port === cert.port) ||
-    (d.expiry && expiry)
-  ));
-  if (clash) {
+  if (findClash(watched.domains, domain, source, settings)) {
     return jsonSafe(res, 409, { error: `Already watching ${domain} (${source})` });
   }
-
   const entry = {
     id:          Date.now().toString(16), // hex timestamp as unique ID
     domain,

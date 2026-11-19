@@ -61,6 +61,7 @@ const { requireAuth, clientIp } = require('./lib/admin/session');
 // Audit trail: who signed in and what was changed
 const audit = require('./lib/admin/audit');
 const { handleGetAudit } = require('./lib/admin/audit-handlers');
+const { handleEditWatched } = require('./lib/admin/watched-edit');
 
 // Domain registration lookup (RDAP)
 const { handleRdap } = require('./lib/rdap-handler');
@@ -168,6 +169,9 @@ const server = http.createServer(async (req, res) => {
     const checkMatch = /^\/admin\/watched\/([A-Za-z0-9]+)\/check$/.exec(pathname);
     if (checkMatch && method === 'POST') return handleCheckWatched(req, res, checkMatch[1]);
 
+    // PATCH /admin/watched/:id — change what an existing entry watches
+    const editMatch = /^\/admin\/watched\/([A-Za-z0-9]+)$/.exec(pathname);
+    if (editMatch && method === 'PATCH') return handleEditWatched(req, res, editMatch[1], readBody);
     // DELETE /admin/watched/:id — extract the ID from the path
     if (pathname.startsWith('/admin/watched/') && method === 'DELETE') {
       const id = pathname.slice('/admin/watched/'.length);
@@ -193,6 +197,7 @@ server.headersTimeout   = 16000; // Must be > server.timeout
 // ── Start ─────────────────────────────────────────────────────────
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[INFO] NetRecon DNS proxy listening on :${PORT}`);
+  audit.record('server_started', { actor: 'system', detail: 'Listening on port ' + PORT });
   console.log(`[INFO] Internal DNS servers: ${DNS_SERVERS.join(', ')}`);
   console.log(`[INFO] Public DNS: Cloudflare DoH (1.1.1.1) — configured servers: ${PUBLIC_DNS.join(', ')}`);
 

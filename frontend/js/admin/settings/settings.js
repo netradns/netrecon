@@ -263,7 +263,7 @@ function renderSettingsShell() {
           <div style="font-size:14px;font-weight:600">Delivery Log</div>
           <button class="btn btn-ghost btn-sm" onclick="loadNotifyLog()">Refresh</button>
         </div>
-        <div style="font-size:12px;color:var(--text-3);margin-bottom:12px">Last 200 webhook and email delivery attempts. Shows success, failure, and duration per channel.</div>
+        <div style="font-size:12px;color:var(--text-3);margin-bottom:12px">Recent webhook and email delivery attempts, newest first. Shows success, failure, and duration per channel. The last 200 are kept. <a href="#" onclick="openActivity('delivery');return false" style="color:var(--blue)">See them with everything else in Activity</a>.</div>
         <div id="notifyDeliveryLog"><div class="empty-state"><div class="spin"></div></div></div>
       </div>
     </div>
@@ -398,8 +398,34 @@ async function loadNotifyLog() {
   }
 }
 
+// Newest first. Paging is done here: the server keeps the last 200 attempts and sends them all.
+let _notifyRows = [];
+let _notifyPage = 0;
+let _notifySize = 10;
+
 function renderNotifyLog(log, el) {
-  if (!log.length) {
+  _notifyRows = log.slice().reverse();
+  _notifyPage = 0;
+  drawNotifyLog(el);
+}
+
+/** Change page (-1 = newer, +1 = older). */
+function notifyLogPage(delta) {
+  const pages = Math.max(1, Math.ceil(_notifyRows.length / _notifySize));
+  _notifyPage = Math.min(pages - 1, Math.max(0, _notifyPage + delta));
+  drawNotifyLog(document.getElementById('notifyDeliveryLog'));
+}
+
+/** Change how many rows are shown per page. */
+function notifyLogSize(n) {
+  _notifySize = n;
+  _notifyPage = 0;
+  drawNotifyLog(document.getElementById('notifyDeliveryLog'));
+}
+
+function drawNotifyLog(el) {
+  if (!el) return;
+  if (!_notifyRows.length) {
     el.innerHTML = '<div class="empty-state" style="padding:12px 0">No deliveries recorded yet.</div>';
     return;
   }
@@ -407,8 +433,13 @@ function renderNotifyLog(log, el) {
   const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const _ts  = ts => new Date(ts).toLocaleString();
 
+  const total = _notifyRows.length;
+  const pages = Math.ceil(total / _notifySize);
+  const from  = _notifyPage * _notifySize;
+  const rows  = _notifyRows.slice(from, from + _notifySize);
+
   let html = '<div class="table-wrap"><table class="data-table"><thead><tr><th>Time</th><th>Channel</th><th>Event</th><th>Status</th><th>Duration</th><th>Error</th></tr></thead><tbody>';
-  log.slice().reverse().forEach(row => {
+  rows.forEach(row => {
     const ok = row.ok === 1;
     html += `<tr>
       <td style="color:var(--text-3);font-size:11px;white-space:nowrap">${_esc(_ts(row.ts))}</td>
@@ -420,9 +451,10 @@ function renderNotifyLog(log, el) {
     </tr>`;
   });
   html += '</tbody></table></div>';
+
+  html += renderPager({ total, page: _notifyPage, size: _notifySize, shown: rows.length, onPage: 'notifyLogPage', onSize: 'notifyLogSize' });
   el.innerHTML = html;
 }
-
 // ── Webhook secret ─────────────────────────────────────────────────
 
 function loadWebhookSecret(config) {

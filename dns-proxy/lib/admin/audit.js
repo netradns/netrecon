@@ -44,7 +44,10 @@ const CATEGORY = {
   notify_test:             'config',
   watched_added:           'watch',
   watched_removed:         'watch',
+  watched_edited:          'watch',
   stats_cleared:           'data',
+  server_started:          'system',
+  watch_failing:           'alerts',
 };
 
 // Event types whose repeats within the window are merged into one entry
@@ -204,4 +207,4 @@ function queueCliEvent(type, detail) {
   }
 }
 
-module.exports = { CATEGORY, record, getLog, flush, queueCliEvent };
+module.exports = { CATEGORY, record, getLog, flush, queueCliEvent, clean };

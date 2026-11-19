@@ -7,26 +7,28 @@
 'use strict';
 
 const { requireAuth } = require('./session');
-const { getLog, CATEGORY } = require('./audit');
 const { MAX_AUDIT_LOG } = require('../config');
+const { getActivity, summary24h, categories } = require('./activity');
 const { jsonSafe } = require('../handlers');
-
-const CATEGORIES = new Set(Object.values(CATEGORY));
-
+const CATEGORIES = categories();
 /**
- * Returns { events: [...], total, kept } where `kept` is the most events the log holds.
- * An unknown category is treated as "all".
+ * Returns { events, total, kept, summary }.
+ *   events   one page of the feed, newest first
+ *   total    how many events match the filter (for paging)
+ *   kept     the most events the audit log keeps
+ *   summary  sign-ins, failed attempts and changes in the last 24 hours
+ * Query: category (an unknown value means "all"), limit (1 to 500), offset (events to skip).
  */
 function handleGetAudit(req, res) {
   if (!requireAuth(req, res)) return;
-
   const url      = new URL(req.url, 'http://localhost');
   const asked    = url.searchParams.get('category');
   const category = CATEGORIES.has(asked) ? asked : undefined;
-  const limit    = url.searchParams.get('limit');
-
-  const events = getLog({ category, limit });
-  return jsonSafe(res, 200, { events, total: events.length, kept: MAX_AUDIT_LOG });
+  const { events, total } = getActivity({
+    category,
+    limit:  url.searchParams.get('limit'),
+    offset: url.searchParams.get('offset'),
+  });
+  return jsonSafe(res, 200, { events, total, kept: MAX_AUDIT_LOG, summary: summary24h() });
 }
-
 module.exports = { handleGetAudit };

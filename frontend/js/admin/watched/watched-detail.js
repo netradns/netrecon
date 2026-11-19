@@ -23,6 +23,7 @@ function openWatchedDetail(entry, watched) {
 
   panel.innerHTML = renderDetailContent(entry, snapshot, changes, watched.certs?.[entry.id], watched.expiries?.[entry.id]);
   panel.classList.add('open');
+  if (typeof initWatchEditor === 'function') initWatchEditor();   // watched-edit.js
 }
 
 /**
@@ -96,6 +97,7 @@ function renderDetailContent(entry, snapshot, changes, certState, expiryState) {
       <div><span style="color:var(--text-3)">Last changed</span> &nbsp;${_esc(_ts(entry.lastChanged))}</div>
     </div>
 
+    ${typeof renderWatchEditor === 'function' ? renderWatchEditor(entry) : ''}
     ${entry.cert ? renderCertSection(entry, certState, _esc, _ts) : ''}
     ${entry.expiry ? renderExpirySection(entry, expiryState, _esc, _ts) : ''}
 

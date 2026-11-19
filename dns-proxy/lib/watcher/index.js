@@ -24,6 +24,7 @@ const { checkCertificate }                 = require('./cert-check');
 const { checkDomainExpiry }                = require('./expiry-check');
 const { alertRecordChanged, alertRecovered, alertError } = require('./alerts');
 const { MAX_CHANGE_HISTORY }               = require('../config');
+const audit                               = require('../admin/audit');
 
 // How often the scheduler ticks (checks which domains are due for polling)
 // 60 seconds is fine — the minimum watch interval is 5 minutes anyway
@@ -51,7 +52,11 @@ async function checkDomain(entry, watched) {
 
   try {
     // Resolve current records
+    const typesAtStart = (entry.recordTypes || []).join(',');
     const current  = await pollDomain(entry);
+    // The record types were edited while this poll ran, so these results are for the old types.
+    // Storing them would make the next poll report the difference as a change. A new check is already queued.
+    if ((entry.recordTypes || []).join(',') !== typesAtStart) return;
     const previous = watched.snapshots[id]?.records || null;
 
     // First poll — just store the snapshot, no diff yet
@@ -115,6 +120,7 @@ async function checkDomain(entry, watched) {
 
     // Only alert after ERROR_THRESHOLD consecutive failures to avoid spam
     if (_errorCounts[id] === ERROR_THRESHOLD) {
+      audit.record('watch_failing', { actor: 'system', detail: `${domain}: ${err.message}` });
       alertError(entry, err.message).catch(() => {});
     }
 
@@ -126,6 +132,9 @@ async function checkDomain(entry, watched) {
 // Entries currently being checked, so a scheduled check and a "check now"
 // request for the same entry never run at the same time.
 const _inFlight = new Set();
+// Entries that were asked for a forced check while one was running (an edit, or Check now).
+// They are checked again as soon as the running check ends, so the request is not lost.
+const _rerun = new Set();
 
 // What the main Status column shows for an entry with no DNS records, from its certificate
 // and registration state. When both are watched, the worse one wins.
@@ -144,7 +153,10 @@ const STATUS_RANK = { stable: 0, pending: 1, changed: 2, error: 3 };
  * @param {boolean} [opts.force] - Check the certificate now even if it was checked recently
  */
 async function checkEntry(entry, watched, opts) {
-  if (_inFlight.has(entry.id)) return;
+  if (_inFlight.has(entry.id)) {
+    if (opts && opts.force) _rerun.add(entry.id);
+    return;
+  }
   _inFlight.add(entry.id);
 
   try {
@@ -179,6 +191,10 @@ async function checkEntry(entry, watched, opts) {
 
   } finally {
     _inFlight.delete(entry.id);
+  }
+  // Not for an entry that was removed meanwhile
+  if (_rerun.delete(entry.id) && watched.domains.includes(entry)) {
+    await checkEntry(entry, watched, { force: true });
   }
 }
 
