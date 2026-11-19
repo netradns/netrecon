@@ -164,12 +164,6 @@ function renderDnsResults(domain, d) {
   html += card('sec-ns', 'var(--ico-green)', '⬡', 'NS Records', 'Authoritative Nameservers', nsRecs ? nsRecs.length : 0, nsBody, delay);
   delay += 40;
 
-  // ── DNSSEC status (public lookups only) ────────────────────
-  if (typeof renderDnssecCard === 'function') {
-    var dnssecHtml = renderDnssecCard(dnssec, delay);
-    if (dnssecHtml) { html += dnssecHtml; delay += 40; }
-  }
-
   // ── 9. SOA Record ────────────────────────────────────────
   var soaBody = '';
   if (!soaRecs || !soaRecs.length) {
@@ -198,6 +192,10 @@ function renderDnsResults(domain, d) {
     caaBody += '</tbody></table>';
   }
   html += card('sec-caa', 'var(--ico-teal)', '🔒', 'CAA Records', 'Certificate Authority', caaRecs ? caaRecs.length : 0, caaBody, delay);
+  delay += 40;
+
+  // ── 11. DNSSEC status (public lookups only) ───────────────
+  if (typeof renderDnssecCard === 'function') html += renderDnssecCard(dnssec, delay);
 
   document.getElementById('dns-results').innerHTML = '<div class="results">' + html + '</div>';
   if (typeof trackUsage === 'function') trackUsage('dns', domain);

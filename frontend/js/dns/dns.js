@@ -225,20 +225,19 @@ async function runLookup() {
     var resultsDiv = container.querySelector('.results');
     if (!resultsDiv) return;
 
-    // Append blacklist card
-    var blHtml = renderBlacklistCard(results[0], 200);
-    if (blHtml) {
-      var blDiv = document.createElement('div');
-      blDiv.innerHTML = blHtml;
-      while (blDiv.firstChild) resultsDiv.appendChild(blDiv.firstChild);
-    }
-
-    // Append TLS card
-    var tlsHtml = renderTlsCard(results[1], raw, 240);
+    // Append the cards in the same order as the sidebar: TLS Certificate, then Blacklist Check
+    var tlsHtml = renderTlsCard(results[1], raw, 200);
     if (tlsHtml) {
       var tlsDiv = document.createElement('div');
       tlsDiv.innerHTML = tlsHtml;
       while (tlsDiv.firstChild) resultsDiv.appendChild(tlsDiv.firstChild);
+    }
+
+    var blHtml = renderBlacklistCard(results[0], 240);
+    if (blHtml) {
+      var blDiv = document.createElement('div');
+      blDiv.innerHTML = blHtml;
+      while (blDiv.firstChild) resultsDiv.appendChild(blDiv.firstChild);
     }
 
     // Inject copy buttons for the new cards
